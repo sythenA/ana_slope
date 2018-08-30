@@ -223,6 +223,11 @@ def SDRFit(c0, c1, c2, ToC, L, x_space, dt, n, slope, deg):
     plt.savefig('SDR_fitting.png')
     plt.close()
 
+    f = open('SDRrec.pick', 'w')
+    pickle.dump({'header': header, 'PT': ptList}, f)
+
+    return header, ptList
+
 
 def bcdPoints(ab, ac):
     #  ab: Two-step transition overland flow object
@@ -273,23 +278,74 @@ def Normalize2(q_clip, s_clip):
     return [q_clip, s_clip]
 
 
+def testFitSDR():
+    a = pickle.load(open('SDRrec.pick', 'r'))
+    header = a['header']
+    PT = a['PT']
+
+    Plist = list()
+    p2List = list()
+    p3List = list()
+    for j in range(0, len(PT)):
+        Plist.append(PT[j][0])
+    for k in range(0, len(Plist)):
+        p2List.append(Plist[k][1])
+        p3List.append(Plist[k][2])
+    p2List = np.array(p2List)
+    p3List = np.array(p3List)
+
+    P2, T2 = bezeir_fit.fit(p2List, 4, 1.0E-8)
+    P3, T3 = bezeir_fit.fit(p3List, 4, 1.0E-8)
+
+    T = np.arange(0., 1.001, 1./50)
+    P2_fit = bezeir_fit.gen(T, 4, P2)
+    P3_fit = bezeir_fit.gen(T, 4, P3)
+
+    plt.figure
+    plt.plot(P2_fit[:, 0], P2_fit[:, 1], label='P2', lw=3.0)
+    plt.plot(p2List[:, 0], p2List[:, 1], ls='--', lw=3.0)
+    plt.plot(P3_fit[:, 0], P3_fit[:, 1], label='P3')
+    plt.plot(p3List[:, 0], p3List[:, 1], ls='--')
+    plt.legend()
+    plt.savefig('p2p3fit.png')
+    plt.close()
+
+    t2 = np.interp([1.277], np.fliplr([header])[0], np.fliplr([T2])[0])
+    t3 = np.interp([1.277], np.fliplr([header])[0], np.fliplr([T3])[0])
+    _p2 = bezeir_fit.gen(t2, 4, P2)[0]
+    _p3 = bezeir_fit.gen(t3, 4, P3)[0]
+
+    _dat1 = bezeir_fit.gen(T, 2, [[1, 1], _p2, _p3])
+    _dat2 = bezeir_fit.gen(T, 2, PT[9][0])
+    plt.figure
+    plt.plot(_dat1[:, 0], _dat1[:, 1], label='gen')
+    plt.plot(_dat2[:, 0], _dat2[:, 1], label='rec')
+    plt.legend()
+    plt.show()
+
+
 class SDRCurves:
-    def __init__(self, L, x_space, dt, n, slope):
+    def __init__(self, L, x_space, dt, n, slope, degC, degP):
+        # degC: Degree of bezeir curve in fitting SDR
+        # degP: Degree of bezeir curve in fitting points generated in fitting
+        # SDR.
         self.alpha = 1./n*sqrt(slope)
         self.L = L
         self.n = n
         self.slope = slope
+        self.x_space = x_space
+        self.degC = degC
+        self.degP = degP
         self.dt = dt
 
     def runSDRFit(self):
         ie0 = 5.0
         ie1 = 300.0
         ie2 = [280.0, 260.0, 240.0, 220.0, 200.0, 180.0, 160.0, 140.0, 120.0,
-               100.0, 80, 60, 40, 20.0, 10.0]
+               100.0, 80, 60, 40, 20.0]
         TimeOfChange = 400.0
-        deg = 2
         header, PTs = SDRFit(ie0, ie1, ie2, TimeOfChange, self.L, self.x_space,
-                             self.n, self.slope, deg)
+                             self.dt, self.n, self.slope, self.degC)
         self.header = header
         self.PTs = PTs
 
