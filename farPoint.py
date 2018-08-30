@@ -325,7 +325,7 @@ def testFitSDR():
 
 
 class SDRCurves:
-    def __init__(self, L, x_space, dt, n, slope, degC, degP):
+    def __init__(self, L, x_space, dt, n, slope, degP):
         # degC: Degree of bezeir curve in fitting SDR
         # degP: Degree of bezeir curve in fitting points generated in fitting
         # SDR.
@@ -334,7 +334,6 @@ class SDRCurves:
         self.n = n
         self.slope = slope
         self.x_space = x_space
-        self.degC = degC
         self.degP = degP
         self.dt = dt
 
@@ -351,4 +350,31 @@ class SDRCurves:
 
     def fitPT(self):
         PTs = self.PTs
+
+        degC = len(PTs[0])-1
+        for i in range(0, degC):
+            pointsList = list()
+            for j in range(0, len(PTs)):
+                pointsList.append(PTs[j][0][i+1])
+
+        Tlist = list()
+        PPList = list()  # Container of points for generating interpolated curve
+        for i in range(0, degC):
+            p, t = bezeir_fit.fit(pointsList[i], self.degP, 1.0E-8)
+            PPList.append(p)
+            Tlist.append(t)
+
+        self.PPlist = PPList
+        self.Tlist = Tlist
+
+    def interpCurve(self, gamma):
         header = self.header
+        PPlist = self.PPlist
+        Tlist = self.Tlist
+
+        curvePoints = [[1, 1]]
+        for i in range(0, len(PPlist)):
+            t = np.interp([gamma], np.fliplr([header])[0],
+                          np.fliplr([Tlist[i]])[0])[0]
+            p = bezeir_fit.gen([t], self.degP, PPlist[i])
+            curvePoints.append(p)
