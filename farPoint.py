@@ -64,7 +64,7 @@ def clipSecondCurve(ab, bc):
     return SC
 
 
-def SWRFitTest():
+def SWRFit():
     c0 = 100.0
     c1 = 5.0
     c2 = [5.5, 10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0, 90.0, 100.0,
@@ -106,6 +106,9 @@ def SWRFitTest():
     #                                      #
     SWR_org = list()
     SWR_fit = list()
+
+    header = list()
+    ptList = list()
     for j in range(0, len(c2)):
         SWR = SWR_curves[j]
 
@@ -125,6 +128,8 @@ def SWRFitTest():
 
         SWR_fit.append(n_SWR)
         SWR_org.append(_SWR)
+        header.append(n_SWR[-1, 0]/n_SWR[0, 0])
+        ptList.append([p, z])
 
     plt.figure(figsize=(10, 8))
     ax = plt.subplot(111)
@@ -142,6 +147,11 @@ def SWRFitTest():
     plt.title('Secondary Wetting Curve - Normalized and Fitting')
     plt.savefig('SWR_fitting.png')
     plt.close()
+
+    f = open('ks1_SWRrec.pick', 'w')
+    pickle.dump({'header': header, 'PT': ptList}, f)
+
+    return header, ptList
 
 
 def SDRFit(c0, c1, c2, ToC, L, x_space, dt, n, slope, deg):
@@ -223,7 +233,7 @@ def SDRFit(c0, c1, c2, ToC, L, x_space, dt, n, slope, deg):
     plt.savefig('SDR_fitting.png')
     plt.close()
 
-    f = open('SDRrec.pick', 'w')
+    f = open('ks1_SDRrec.pick', 'w')
     pickle.dump({'header': header, 'PT': ptList}, f)
 
     return header, ptList
@@ -325,7 +335,7 @@ def testFitSDR():
 
 
 class SDRCurves:
-    def __init__(self, L, x_space, dt, n, slope, degP):
+    def __init__(self, L, x_space, dt, n, slope, degC, degP, **kwargs):
         # degC: Degree of bezeir curve in fitting SDR
         # degP: Degree of bezeir curve in fitting points generated in fitting
         # SDR.
@@ -334,8 +344,15 @@ class SDRCurves:
         self.n = n
         self.slope = slope
         self.x_space = x_space
+        self.degC = degC
         self.degP = degP
         self.dt = dt
+
+        if 'useFile' in kwargs.keys():
+            recfile = kwargs['useFile']
+            self.readRec(recfile)
+        else:
+            self.runSDRFit()
 
     def runSDRFit(self):
         ie0 = 5.0
@@ -348,10 +365,91 @@ class SDRCurves:
         self.header = header
         self.PTs = PTs
 
+    def readRec(self, recFile):
+        a = pickle.load(open(recFile, 'r'))
+        self.header = a['header']
+        self.PTs = a['PT']
+
+    def fitPT(self):
+        PTs = self.PTs
+
+        degC = len(PTs[0][0])-1
+        self.degC = degC
+        pointsContainer = list()
+        for i in range(0, degC):
+            pointsList = list()
+            for j in range(0, len(PTs)):
+                pointsList.append(PTs[j][0][i+1])
+            pointsContainer.append(pointsList)
+
+        Tlist = list()
+        PPList = list()  # Container of points for generating interpolated curve
+        for i in range(0, degC):
+            p, t = bezeir_fit.fit(np.array(pointsContainer[i]), self.degP,
+                                  1.0E-8)
+            PPList.append(p)
+            Tlist.append(t)
+
+        self.PPlist = PPList
+        self.Tlist = Tlist
+
+    def interpCurve(self, gamma):
+        header = self.header
+        PPlist = self.PPlist
+        Tlist = self.Tlist
+
+        curvePoints = [[1, 1]]
+        for i in range(0, len(PPlist)):
+            t = np.interp([gamma], np.fliplr([header])[0],
+                          np.fliplr([Tlist[i]])[0])[0]
+            p = bezeir_fit.gen([t], self.degP, PPlist[i])[0]
+            curvePoints.append(p)
+        T = np.arange(0., 1.0001, 1./100)
+        curve = bezeir_fit.gen(T, self.degC, np.array(curvePoints))
+        return curve, T
+
+
+
+class SWRCurves:
+    def __init__(self, L, x_space, dt, n, slope, degP, **kwargs):
+        # degC: Degree of bezeir curve in fitting SWR
+        # degP: Degree of bezeir curve in fitting points generated in fitting
+        # SWR.
+        self.alpha = 1./n*sqrt(slope)
+        self.L = L
+        self.n = n
+        self.slope = slope
+        self.x_space = x_space
+        self.degP = degP
+        self.dt = dt
+
+        if 'useFile' in kwargs.keys():
+            recfile = kwargs['useFile']
+            self.readRec(recfile)
+        else:
+            self.runSWRFit()
+
+    def runSWRFit(self):
+        ie0 = 5.0
+        ie1 = 300.0
+        ie2 = [280.0, 260.0, 240.0, 220.0, 200.0, 180.0, 160.0, 140.0, 120.0,
+               100.0, 80, 60, 40, 20.0]
+        TimeOfChange = 400.0
+        header, PTs = SWRFit(ie0, ie1, ie2, TimeOfChange, self.L, self.x_space,
+                             self.dt, self.n, self.slope, self.degC)
+        self.header = header
+        self.PTs = PTs
+
+    def readRec(self, recFile):
+        a = pickle.load(open(recFile, 'r'))
+        self.header = a['header']
+        self.PTs = a['PT']
+
     def fitPT(self):
         PTs = self.PTs
 
         degC = len(PTs[0])-1
+        self.degC = degC
         for i in range(0, degC):
             pointsList = list()
             for j in range(0, len(PTs)):
@@ -374,7 +472,78 @@ class SDRCurves:
 
         curvePoints = [[1, 1]]
         for i in range(0, len(PPlist)):
-            t = np.interp([gamma], np.fliplr([header])[0],
-                          np.fliplr([Tlist[i]])[0])[0]
-            p = bezeir_fit.gen([t], self.degP, PPlist[i])
+            t = np.interp(gamma, header, Tlist[i])[0]
+            p = bezeir_fit.gen(t, self.degP, PPlist[i])[0][0]
             curvePoints.append(p)
+        T = np.arange(0., 1.0001, 1./100)
+        curve = bezeir_fit.gen(T, self.degC, curvePoints)
+        return curve, T
+
+
+def interpS(S, S_curve, T):
+    # Return all possible value in t corresponds to storage in a SDR curve.
+    sol = list()
+    for i in range(1, len(T)):
+        if (S_curve[i-1] - S)*(S_curve[i] - S) < 0:
+            t0 = T[i-1]
+            t1 = T[i]
+            S1 = S_curve[i]
+            S0 = S_curve[i-1]
+            # linear interpolation
+            t = t0 + (S-S0)/(S1-S0)*(t1-t0)
+            sol.append(t)
+
+    return sol
+
+
+def interpQtoT(Q, t0, Q_curve, T):
+    # Return the closiest value of q in bezeir-curve-fit.
+    sol = list()
+    for i in range(1, len(T)):
+        if (Q_curve[i-1]-Q)*(Q_curve[i]-Q) < 0:
+            t1 = T[i-1]
+            t2 = T[i]
+            Q1 = Q_curve[i-1]
+            Q2 = Q_curve[i]
+
+            t = t1 + (Q-Q1)/(Q2-Q1)*(t2-t1)
+            sol.append(t)
+    sol = np.array(sol)
+    print sol
+    sol = sol - t0
+    sol.sort()
+    print sol
+    idx = np.where(sol > 0)
+
+    print idx
+
+    return sol[idx[0]]+t0  # returns T(reference position on bezeir-curve)
+
+
+def SCQuerry(curve, T, Sc, Q0, t0):
+    """
+    Sc: the storage to find the outflow
+    Q0: last outflow
+    T: reference knots
+    curve: standard generated bezeir curve of outflow - storage relation.
+    t0: the last t-value(indicator of position on a bezeir-curve)
+    """
+    q = curve[:, 0]
+    s = curve[:, 1]
+
+    t0 = interpQtoT(Q0, t0, q, T)
+    s_to_t = interpS(Sc, s, T)
+
+    if len(s_to_t) > 1:
+        r = np.array(s_to_t) - t0
+        r = r.sort()
+        idx = np.where(r > 0)
+        idx = idx[0]
+
+        t = r[idx] + t0
+        Q1 = np.interp(t, T, q)
+    elif len(s_to_t) == 1:
+        t = s_to_t[0]
+        Q1 = np.interp(t, T, q)
+
+    return Q1, t
