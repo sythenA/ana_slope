@@ -5,7 +5,7 @@ import numpy as np
 import pickle
 import matplotlib.pyplot as plt
 import bezeir_fit
-import matplotlib as mpl
+from random import randint
 from math import sqrt
 
 std_SQ = pickle.load(open('Steady_fit/SQ_Steady.pick', 'r'))
@@ -64,12 +64,7 @@ def clipSecondCurve(ab, bc):
     return SC
 
 
-def SWRFit():
-    c0 = 100.0
-    c1 = 5.0
-    c2 = [5.5, 10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0, 90.0, 100.0,
-          110.0, 130.0, 150.0, 170.0, 200.0]
-
+def SWRFit(c0, c1, c2, ToC, L, x_space, dt, n, slope, deg):
     a_curves = list()
     b_curves = list()
     SWR_curves = list()
@@ -77,7 +72,7 @@ def SWRFit():
     for i in range(0, len(c2)):
         ca = two_step.two_step_overland(c0, c1, c2[i], 100.0, 201, 0.5, 0.1,
                                         0.01)
-        ca.ie1_duration(405)
+        ca.ie1_duration(ToC)
         cb = ana_new.trans_ana(c1, c2[i], 100.0, 201, 0.5, 0.1, 0.01)
         ca.run()
         cb.run()
@@ -94,7 +89,7 @@ def SWRFit():
         plt.plot(b_curves[j].out_q[:, 1], b_curves[j].out_s[:, 1],
                  color='chocolate', lw=1.0, ls='-')
         plt.plot(SWR_curves[j][:, 1], SWR_curves[j][:, 2],
-                 label='{:4.3f}'.format(SWR_curves[j][-1, 1]/SWR_curves[j][0, 1]))
+                 label='{:4.3f}'.format(SWR_curves[j][-1, 1]))
     plt.legend(loc=1)
     plt.xlabel('Storage ($m^2$)')
     plt.ylabel('Outflow ($m^2/s$)')
@@ -124,6 +119,7 @@ def SWRFit():
         _SWR[:, 1] = np.interp(t, SWR[:, 0], SWR[:, 2])
         [p, z] = bezeir_fit.fit(_SWR, 2, 1.0E-8)
         p[0] = [1.0, 1.0]
+        p[-1] = [SWR[-1, 1], SWR[-1, 2]]
         n_SWR = bezeir_fit.gen(t, 2, p)
 
         SWR_fit.append(n_SWR)
@@ -179,7 +175,7 @@ def SDRFit(c0, c1, c2, ToC, L, x_space, dt, n, slope, deg):
         plt.plot(b_curves[j].out_q[:, 1], b_curves[j].out_s[:, 1],
                  color='chocolate', lw=1.0, ls='-')
         plt.plot(SDR_curves[j][:, 1], SDR_curves[j][:, 2],
-                 label='{:4.3f}'.format(SDR_curves[j][-1, 1]/SDR_curves[j][0, 1]))
+                 label='{:4.3f}'.format(SDR_curves[j][-1, 1]))
     plt.legend(loc=1)
     plt.xlabel('Storage ($m^2$)')
     plt.ylabel('Outflow ($m^2/s$)')
@@ -209,6 +205,7 @@ def SDRFit(c0, c1, c2, ToC, L, x_space, dt, n, slope, deg):
         _SDR[:, 1] = np.interp(t, SDR[:, 0], SDR[:, 2])
         [p, z] = bezeir_fit.fit(_SDR, deg, 1.0E-8)
         p[0] = [1.0, 1.0]
+        p[-1] = [SDR[-1, 1]/SDR[0, 1], SDR[-1, 2]/SDR[0, 2]]
         n_SDR = bezeir_fit.gen(t, deg, p)
 
         SDR_fit.append(n_SDR)
@@ -383,7 +380,8 @@ class SDRCurves:
             pointsContainer.append(pointsList)
 
         Tlist = list()
-        PPList = list()  # Container of points for generating interpolated curve
+        # Container of points for generating interpolated curve
+        PPList = list()
         for i in range(0, degC):
             p, t = bezeir_fit.fit(np.array(pointsContainer[i]), self.degP,
                                   1.0E-8)
@@ -409,9 +407,8 @@ class SDRCurves:
         return curve, T
 
 
-
 class SWRCurves:
-    def __init__(self, L, x_space, dt, n, slope, degP, **kwargs):
+    def __init__(self, L, x_space, dt, n, slope, degC, degP, **kwargs):
         # degC: Degree of bezeir curve in fitting SWR
         # degP: Degree of bezeir curve in fitting points generated in fitting
         # SWR.
@@ -420,6 +417,7 @@ class SWRCurves:
         self.n = n
         self.slope = slope
         self.x_space = x_space
+        self.degC = degC
         self.degP = degP
         self.dt = dt
 
@@ -430,11 +428,11 @@ class SWRCurves:
             self.runSWRFit()
 
     def runSWRFit(self):
-        ie0 = 5.0
-        ie1 = 300.0
-        ie2 = [280.0, 260.0, 240.0, 220.0, 200.0, 180.0, 160.0, 140.0, 120.0,
-               100.0, 80, 60, 40, 20.0]
-        TimeOfChange = 400.0
+        ie0 = 100.0
+        ie1 = 5.0
+        ie2 = [5.5, 10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0, 90.0,
+               100.0, 110.0, 130.0, 150.0, 170.0, 200.0]
+        TimeOfChange = 405.0
         header, PTs = SWRFit(ie0, ie1, ie2, TimeOfChange, self.L, self.x_space,
                              self.dt, self.n, self.slope, self.degC)
         self.header = header
@@ -448,17 +446,22 @@ class SWRCurves:
     def fitPT(self):
         PTs = self.PTs
 
-        degC = len(PTs[0])-1
+        degC = len(PTs[0][0])-1
         self.degC = degC
+        pointsContainer = list()
         for i in range(0, degC):
             pointsList = list()
             for j in range(0, len(PTs)):
                 pointsList.append(PTs[j][0][i+1])
+            pointsContainer.append(pointsList)
 
         Tlist = list()
-        PPList = list()  # Container of points for generating interpolated curve
+
+        # Container of points for generating interpolated curve
+        PPList = list()
         for i in range(0, degC):
-            p, t = bezeir_fit.fit(pointsList[i], self.degP, 1.0E-8)
+            p, t = bezeir_fit.fit(np.array(pointsContainer[i]), self.degP,
+                                  1.0E-8)
             PPList.append(p)
             Tlist.append(t)
 
@@ -472,12 +475,110 @@ class SWRCurves:
 
         curvePoints = [[1, 1]]
         for i in range(0, len(PPlist)):
-            t = np.interp(gamma, header, Tlist[i])[0]
-            p = bezeir_fit.gen(t, self.degP, PPlist[i])[0][0]
+            t = np.interp(gamma, header, Tlist[i])
+            p = bezeir_fit.gen(t, self.degP, PPlist[i])
             curvePoints.append(p)
         T = np.arange(0., 1.0001, 1./100)
         curve = bezeir_fit.gen(T, self.degC, curvePoints)
         return curve, T
+
+    def interpS(self, S, S_curve, T):
+        # Return all possible value in t corresponds to storage in a SDR curve.
+        sol = list()
+        for i in range(1, len(T)):
+            if (S_curve[i-1] - S)*(S_curve[i] - S) < 0:
+                t0 = T[i-1]
+                t1 = T[i]
+                S1 = S_curve[i]
+                S0 = S_curve[i-1]
+                # linear interpolation
+                t = t0 + (S-S0)/(S1-S0)*(t1-t0)
+                sol.append(t)
+
+        return sol
+
+    def interpQtoT(self, Q, t0, Q_curve, T):
+        # Return the closiest value of q in bezeir-curve-fit.
+        sol = list()
+        for i in range(1, len(T)):
+            if (Q_curve[i-1]-Q)*(Q_curve[i]-Q) < 0:
+                t1 = T[i-1]
+                t2 = T[i]
+                Q1 = Q_curve[i-1]
+                Q2 = Q_curve[i]
+
+                t = t1 + (Q-Q1)/(Q2-Q1)*(t2-t1)
+                sol.append(t)
+        sol = np.array(sol)
+        print(sol)
+        sol = sol - t0
+        sol.sort()
+        print(sol)
+        idx = np.where(sol > 0)
+
+        print(idx)
+
+        return sol[idx[0]]+t0  # returns T(reference position on bezeir-curve)
+
+    def SCQuerry(self, curve, T, Sc, Q0=None, t0=None):
+        """
+        Sc: the storage to find the outflow
+        Q0: last outflow
+        T: reference knots
+        curve: standard generated bezeir curve of outflow - storage relation.
+        t0: the last t-value(indicator of position on a bezeir-curve)
+        """
+        q = curve[:, 0]
+        s = curve[:, 1]
+
+        if not t0:
+            t0 = 0.
+        if Q0:
+            t0 = interpQtoT(Q0, t0, q, T)
+
+        s_to_t = interpS(Sc, s, T)
+
+        if len(s_to_t) > 1:
+            r = np.array(s_to_t) - t0
+            r = r.sort()
+            idx = np.where(r > 0)
+            idx = idx[0]
+
+            t = r[idx] + t0
+            Q1 = np.interp(t, T, q)
+        elif len(s_to_t) == 1:
+            t = s_to_t[0]
+            Q1 = np.interp(t, T, q)
+
+        return Q1, t
+
+    def iteration(self, init_g, S, Q, curve, Tc):
+        g1 = init_g
+        g0 = 1.0
+        error = 100.0
+        error0 = 100.0
+        while error < 1.0E-8:
+            swc = self.interpCurve(g1)
+            swc[:, 0] = swc[:, 0]*Q
+            swc[:, 1] = swc[:, 1]*S
+            Q1, t1 = self.SCQuerry(curve, Tc, swc[-1, 1])
+            error = abs(swc[-1, 0]-Q1)
+
+            _g0 = g1
+            g1 = g1 - (error-error0)/(g1-g0)
+            g0 = _g0
+            error0 = error
+
+        return g1
+
+    def endFit(self, S, Q, k, maxS, maxQ, risingGen):
+        # The terminal curve
+        curve, T = risingGen.getCurve(k, maxS, maxQ)
+
+        init_gamma = 1.5
+        gamma = self.iteration(init_gamma, S, Q, curve, T)
+
+        return gamma
 
 
 def interpS(S, S_curve, T):
@@ -509,18 +610,18 @@ def interpQtoT(Q, t0, Q_curve, T):
             t = t1 + (Q-Q1)/(Q2-Q1)*(t2-t1)
             sol.append(t)
     sol = np.array(sol)
-    print sol
+    print(sol)
     sol = sol - t0
     sol.sort()
-    print sol
+    print(sol)
     idx = np.where(sol > 0)
 
-    print idx
+    print(idx)
 
     return sol[idx[0]]+t0  # returns T(reference position on bezeir-curve)
 
 
-def SCQuerry(curve, T, Sc, Q0, t0):
+def SCQuerry(curve, T, Sc, t0, Q0=None):
     """
     Sc: the storage to find the outflow
     Q0: last outflow
@@ -531,7 +632,8 @@ def SCQuerry(curve, T, Sc, Q0, t0):
     q = curve[:, 0]
     s = curve[:, 1]
 
-    t0 = interpQtoT(Q0, t0, q, T)
+    if Q0:
+        t0 = interpQtoT(Q0, t0, q, T)
     s_to_t = interpS(Sc, s, T)
 
     if len(s_to_t) > 1:
@@ -547,3 +649,127 @@ def SCQuerry(curve, T, Sc, Q0, t0):
         Q1 = np.interp(t, T, q)
 
     return Q1, t
+
+
+def randColor():
+    r = randint(0, 255)
+    g = randint(0, 255)
+    b = randint(0, 255)
+
+    return '#%02x%02x%02x' % (r, g, b)
+
+
+def compareSDRCurve():
+    L = 100.0
+    slope = 0.01
+    n = 0.1
+    dt = 0.5
+    x_space = 201
+    a = SDRCurves(L, x_space, dt, n, slope, 2, 4, useFile='ks1_SDRrec.pick')
+    a.fitPT()
+
+    # Run curves
+    ie0 = 5.0
+    ie1 = 300.0
+    ie2 = [280.0, 260.0, 240.0, 220.0, 200.0, 180.0, 160.0, 140.0, 120.0,
+           100.0, 80, 60, 40, 20.0]
+    TimeOfChange = 400.0
+
+    SDR_curves = list()
+    gen_Curves = list()
+    Qratios = list()
+    for i in range(0, len(ie2)):
+        ca = two_step.two_step_overland(ie0, ie1, ie2[i], L, x_space, dt, n,
+                                        slope)
+        ca.ie1_duration(TimeOfChange)
+        cb = ana_new.trans_ana(ie1, ie2[i], L, x_space, dt, n, slope)
+        ca.run()
+        cb.run()
+        SDR = clipSecondCurve(ca, cb)
+        SDR[:, 0] = (SDR[:, 0] - SDR[0, 0])/(SDR[-1, 0] - SDR[0, 0])
+        SDR[:, 1] = SDR[:, 1]/SDR[0, 1]
+        SDR[:, 2] = SDR[:, 2]/SDR[0, 2]
+
+        SDR_curves.append(SDR)
+
+        Qratio = SDR[-1, 1]/SDR[0, 1]
+        curve, T = a.interpCurve(Qratio)
+        gen_Curves.append(curve)
+        Qratios.append(Qratio)
+
+    plt.figure(figsize=(10, 8))
+    ax = plt.subplot(111)
+    for k in range(0, len(ie2)):
+        color = randColor()
+        ax.plot(SDR_curves[k][:, 1], SDR_curves[k][:, 2], lw=1.0, ls='--',
+                label='{:4.3f}'.format(Qratios[k]), color=color)
+        ax.plot(gen_Curves[k][:, 0], gen_Curves[k][:, 1], lw=2.0, ls='-',
+                label='{:4.3f}'.format(gen_Curves[k][-1, 0]),
+                color=color)
+
+    box = ax.get_position()
+    ax.set_position([box.x0, box.y0, box.width * 0.8, box.height])
+    ax.legend(loc='upper left', bbox_to_anchor=(1.05, 1.0), ncol=2)
+    ax.set_xlabel('q')
+    ax.set_ylabel('s')
+    plt.title('Secondary Drying Curve - Original and Generated')
+    plt.savefig('SDR_gen_compare.png')
+    plt.close()
+
+
+def compareSWRCurve():
+    ie0 = 100.0
+    ie1 = 5.0
+    ie2 = [5.5, 10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0, 90.0,
+           100.0, 110.0, 130.0, 150.0, 170.0, 200.0]
+    L = 100.0
+    slope = 0.01
+    n = 0.1
+    dt = 0.5
+    x_space = 201
+    a = SWRCurves(L, x_space, dt, n, slope, 2, 4, useFile='ks1_SWRrec.pick')
+    a.fitPT()
+
+    # Run curves
+    TimeOfChange = 405.0
+
+    SWR_curves = list()
+    gen_Curves = list()
+    Qratios = list()
+    for i in range(0, len(ie2)):
+        ca = two_step.two_step_overland(ie0, ie1, ie2[i], L, x_space, dt, n,
+                                        slope)
+        ca.ie1_duration(TimeOfChange)
+        cb = ana_new.trans_ana(ie1, ie2[i], L, x_space, dt, n, slope)
+        ca.run()
+        cb.run()
+        SWR = clipSecondCurve(ca, cb)
+        SWR[:, 0] = (SWR[:, 0] - SWR[0, 0])/(SWR[-1, 0] - SWR[0, 0])
+        SWR[:, 1] = SWR[:, 1]/SWR[0, 1]
+        SWR[:, 2] = SWR[:, 2]/SWR[0, 2]
+
+        SWR_curves.append(SWR)
+
+        Qratio = SWR[-1, 1]/SWR[0, 1]
+        curve, T = a.interpCurve(Qratio)
+        gen_Curves.append(curve)
+        Qratios.append(Qratio)
+
+    plt.figure(figsize=(10, 8))
+    ax = plt.subplot(111)
+    for k in range(0, len(ie2)):
+        color = randColor()
+        ax.plot(SWR_curves[k][:, 1], SWR_curves[k][:, 2], lw=1.0, ls='--',
+                label='{:4.3f}'.format(Qratios[k]), color=color)
+        ax.plot(gen_Curves[k][:, 0], gen_Curves[k][:, 1], lw=2.0, ls='-',
+                label='{:4.3f}'.format(gen_Curves[k][-1, 0]),
+                color=color)
+
+    box = ax.get_position()
+    ax.set_position([box.x0, box.y0, box.width * 0.8, box.height])
+    ax.legend(loc='upper left', bbox_to_anchor=(1.05, 1.0), ncol=2)
+    ax.set_xlabel('q')
+    ax.set_ylabel('s')
+    plt.title('Secondary Wetting Curve - Original and Generated')
+    plt.savefig('SWR_gen_compare.png')
+    plt.close()

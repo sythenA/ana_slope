@@ -1,10 +1,7 @@
 
-import sys
 import steady_fit as st
-import bezeir_fit as bf
-import pickle
 import numpy as np
-from math import fabs, hypot
+from math import fabs
 import matplotlib.pyplot as plt
 
 
@@ -46,6 +43,18 @@ class RisingLimb:
         rev_mat = np.fliplr([mat])[0]
 
         return rev_mat
+
+    def getCurve(self, k, maxS, maxQ):
+        curve = self.ref.SQ_curve(k)
+
+        t = np.arange(0.0, 1.001, 0.01)
+        curve[:, 1] = curve[:, 1]*(1.0 - (1./k)**(3./5)) + (1./k)**(3./5)
+        curve[:, 0] = curve[:, 0]*(1.0 - 1./k) + 1./k
+
+        curve[:, 1] = curve[:, 1]*maxS
+        curve[:, 0] = curve[:, 0]*maxQ
+
+        return curve, t
 
     def s_to_q(self, k, normS):
         nQ = self.ref.NS_to_NQ(normS, k)
@@ -99,11 +108,11 @@ class RisingLimb:
         for i in range(1, len(max_k)):
             if 1.0/k1 > max_k[i-1] and 1.0/k1 <= max_k[i]:
                 Dos1 = seq[i-1].outflow_D(k1)
-                print k1
+                print(k1)
             if 1.0/k2 > max_k[i-1] and 1.0/k2 <= max_k[i]:
                 Dos2 = seq[i-1].outflow_D(k2)
-                print k2
-        print max_k
+                print(k2)
+        print(max_k)
 
         dev_Ds = (Dos2 - Dos1)/(k2 - k1)
         fun_dev_D = np.poly1d(dev_Ds)
@@ -125,7 +134,7 @@ class RisingLimb:
 
             #  deg = len(ref.ref_points(k0)) - 1
             t_star = ref.NS_to_t(normS, k0)
-            print t_star
+            print(t_star)
             f = fabs(normQ - Q_star)
             """
             print ref.derivate(t_star)
@@ -136,7 +145,7 @@ class RisingLimb:
             """
             df = hypot(df[0], df[1])
             """
-            print df
+            print(df)
             if df == 0:
                 break
 
@@ -149,7 +158,7 @@ class RisingLimb:
                 k1 = k1 + 0.5
                 """
             err = fabs(k1-k0)
-            print err
+            print(err)
             k0 = k1
             counter += 1
             if counter > 50:
@@ -195,6 +204,17 @@ class FallingLimb:
 
         nQ = self.ref.NS_to_NQ(normS, inv_k)
         return nQ
+
+    def getCurve(self, inv_k, maxQ, maxS):
+        curve = self.ref.SQCurve(inv_k)
+        t = np.arange(0.0, 1.01, 0.01)
+
+        curve[:, 1] = curve[:, 1]*(1.0 - inv_k**(3./5))/inv_k**(3./5) + 1.  # S
+        curve[:, 0] = curve[:, 0]*(1.0 - inv_k)/inv_k + 1.                  # Q
+        curve[:, 1] = curve[:, 1]*maxS
+        curve[:, 0] = curve[:, 0]*maxQ
+
+        return curve, t
 
     def test_k(self, k0, k1, normS, normQ):
         Q_star1 = self.s_to_q(k0, normS)
@@ -270,9 +290,78 @@ class FallingLimb:
             counter += 1
             if counter > 50:
                 break
-            print err
+            print(err)
 
         return 1./k0, self.s_to_q(k0, normS)
+
+
+def interpS(S, S_curve, T):
+    # Return all possible value in t corresponds to storage in a SDR curve.
+    sol = list()
+    for i in range(1, len(T)):
+        if (S_curve[i-1] - S)*(S_curve[i] - S) < 0:
+            t0 = T[i-1]
+            t1 = T[i]
+            S1 = S_curve[i]
+            S0 = S_curve[i-1]
+            # linear interpolation
+            t = t0 + (S-S0)/(S1-S0)*(t1-t0)
+            sol.append(t)
+
+    return sol
+
+
+def interpQtoT(Q, t0, Q_curve, T):
+    # Return the closiest value of q in bezeir-curve-fit.
+    sol = list()
+    for i in range(1, len(T)):
+        if (Q_curve[i-1]-Q)*(Q_curve[i]-Q) < 0:
+            t1 = T[i-1]
+            t2 = T[i]
+            Q1 = Q_curve[i-1]
+            Q2 = Q_curve[i]
+
+            t = t1 + (Q-Q1)/(Q2-Q1)*(t2-t1)
+            sol.append(t)
+    sol = np.array(sol)
+    print(sol)
+    sol = sol - t0
+    sol.sort()
+    print(sol)
+    idx = np.where(sol > 0)
+
+    print(idx)
+
+    return sol[idx[0]]+t0  # returns T(reference position on bezeir-curve)
+
+
+def SCQuerry(curve, T, Sc, Q0, t0):
+    """
+    Sc: the storage to find the outflow
+    Q0: last outflow
+    T: reference knots
+    curve: standard generated bezeir curve of outflow - storage relation.
+    t0: the last t-value(indicator of position on a bezeir-curve)
+    """
+    q = curve[:, 0]
+    s = curve[:, 1]
+
+    t0 = interpQtoT(Q0, t0, q, T)
+    s_to_t = interpS(Sc, s, T)
+
+    if len(s_to_t) > 1:
+        r = np.array(s_to_t) - t0
+        r = r.sort()
+        idx = np.where(r > 0)
+        idx = idx[0]
+
+        t = r[idx] + t0
+        Q1 = np.interp(t, T, q)
+    elif len(s_to_t) == 1:
+        t = s_to_t[0]
+        Q1 = np.interp(t, T, q)
+
+    return Q1, t
 
 
 def run_Steady_gen(length, dt, n, slope):
@@ -332,9 +421,10 @@ def run_FallingLimb_fit():
     ab = st.FallingLimb_fit(ks1, rec_name='ks1_Fall', save_name='fit_1')
     ab.run()
     ab.SaveResult()
+    """
     val1 = ab.SQ_curve(0.32)
     val2 = ab.SQ_curve(0.015)
     plt.figure
     plt.plot(val1[:, 1], val1[:, 0], '-b')
     plt.plot(val2[:, 1], val2[:, 0], '-r')
-    plt.show()
+    plt.show()"""

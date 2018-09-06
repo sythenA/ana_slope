@@ -5,6 +5,7 @@ from SQsearch import RisingLimb, FallingLimb
 import pickle
 import ana_new as an
 import steady_fit as st
+from farPoint import SWRCurves, SDRCurves
 
 
 def rainParse(rain_rec, current_t):
@@ -99,11 +100,74 @@ def r_h3(length, ie, S, dt, h2, std):
     return h3
 
 
+def initialk(rain_rec, dt, std, Rise, Fall):
+    # Set initial setting before simulation start
+    pre_ie = rainParse(rain_rec, 0.0)
+    c_ie = rainParse(rain_rec, dt)
+    if pre_ie > 0:
+        k = rainParse(rain_rec, dt)/pre_ie  # Initial k setting
+        max_S = std.ie_to_storage(max([c_ie, pre_ie]))
+        max_Q = std.ie_to_outflow(max([c_ie, pre_ie]))
+        if k > 1.:
+            currentCurve, t = Rise.getCurve(k, max_S, max_Q)
+        elif k < 1.:
+            currentCurve, t = Fall.getCurve(k, max_S, max_Q)
+        elif k == 0:
+            k = 1./100
+            currentCurve, t = Fall.getCurve(k, max_S, max_Q)
+        elif k == 1:
+            currentCurve, t = std.bzCurve()
+    elif pre_ie == 0 and c_ie > 0:
+        max_S = std.ie_to_storage(max([c_ie, pre_ie]))
+        max_Q = std.ie_to_outflow(max([c_ie, pre_ie]))
+        k = 100.0
+        currentCurve, t = Rise.getCurve(k, max_S, max_Q)
+    elif pre_ie == 0 and c_ie == 0:
+        currentCurve, t = std.bzCurve()
+
+    return k, currentCurve, t
+
+
+def curveFromSteadyK(k, maxS, maxQ, Rise, Fall):
+
+
+def getK(S, Q, pre_ie, c_ie, std, Rise, Fall, SDR, SWR):
+    relative_ie = std.s_to_ie(S)
+    relative_Q = std.ie_to_outflow(relative_ie)
+    maxS = std.ie_to_storage(max([c_ie, pre_ie]))
+    maxQ = std.ie_to_outflow(max([c_ie, pre_ie]))
+    k1 = c_ie/pre_ie
+    if Q < relative_Q*0.999:  # S, Q on the rising side
+        if k1 > 1:
+            k, t_star = Rise.SQtok(
+                S/max_S, Q/max_Q, (std.ie_to_storage(c_ie)/max_S)**(5.0/3))
+            curve, T = Rise.getCurve(k, maxS, maxQ)
+        elif k1 < 1:  # Call SDC
+
+    elif Q > relative_Q*1.001:  # S, Q on the falling side
+        if k1 < 1:
+            k, t_star = Fall.SQtok(
+                S/max_S, Q/max_Q,
+                (std.ie_to_storage(c_ie)/max_S)**(5.0/3) - 0.01)
+            curve, T = Fall.getCurve(k, maxS, maxQ)
+        elif k1 > 1:  # Call SWC
+    print('k=%f' % k)
+
+
 def calc(rain_rec, length):
     dt = 20.0
-    Fall = FallingLimb(rec_name='ks2', folder='Steady_fit')
-    Rise = RisingLimb(rec_name='ks2', folder='Steady_fit')
-    std = st.fit_steady(save_name='ks2', folder='Steady_fit')
+    Fall = FallingLimb(rec_name='ks1', folder='Steady_fit')
+    Rise = RisingLimb(rec_name='ks1', folder='Steady_fit')
+
+    # Secondary curves
+    SDR = SDRCurves(100.0, 201, 0.5, 0.1, 0.01, 2, 4,
+                    useFile='ks1_SDRrec.pick')
+    SDR.fitPT()
+    SWR = SWRCurves(100.0, 201, 0.5, 0.1, 0.01, 2, 4,
+                    useFile='ks1_SWRrec.pick')
+    SWR.fitPT()
+
+    std = st.fit_steady(save_name='ks1', folder='Steady_fit')
     std.load()
 
     rain_rec = np.array(rain_rec)
@@ -131,28 +195,27 @@ def calc(rain_rec, length):
     bkw_S = S0
     bkw_Q = Q0
 
-    k = rainParse(rain_rec, dt)/rainParse(rain_rec, 0.0)  # Initial k setting
+    pre_ie = rainParse(rain_rec, 0.0)
+    k, c_curve, t = initialk(rain_rec, dt, std, Rise, Fall)
+    steay = True
+
     while t < max_t:
         t = t + dt
+
+        # Current rainfall
         c_ie = rainParse2(rain_rec, t, dt)
-        pre_ie = rainParse2(rain_rec, t-dt, dt)
+
+        # Compare current rainfall and last rainfall
         if c_ie != pre_ie:
-            print(c_ie)
+            print('rainfall change to %f' % c_ie*3600*1000)
             max_S = std.ie_to_storage(c_ie)
             max_Q = std.ie_to_outflow(c_ie)
 
-        print(t, Q)
+            if steady:
+                k = c_ie/pre_ie
+            else:
 
-        if c_ie != pre_ie:
-            if S < std.ie_to_storage(c_ie):
-                k, t_star = Rise.SQtok(
-                    S/max_S, Q/max_Q, (std.ie_to_storage(c_ie)/max_S)**(5.0/3))
-                #  k, t_star = Rise.SQtok(S/max_S, Q/max_Q, 5.0)
-            elif S > std.ie_to_storage(c_ie):
-                k, t_star = Fall.SQtok(
-                    S/max_S, Q/max_Q,
-                    (std.ie_to_storage(c_ie)/max_S)**(5.0/3) - 0.01)
-            print(k)
+
 
         dS1 = h1(length, c_ie, k, S/max_S, dt, std, Fall, Rise)
         dS2 = h2(length, c_ie, k, S/max_S, dS1, dt, std, Fall, Rise)
@@ -180,6 +243,9 @@ def calc(rain_rec, length):
 
         bkw_s_curve.append([t, bkw_S])
         bkw_q_curve.append([t, bkw_Q])
+
+        if c_ie != pre_ie:
+            pre_ie = c_ie
 
     q_curve = np.array(q_curve)
     s_curve = np.array(s_curve)
@@ -237,59 +303,6 @@ def calc(rain_rec, length):
     plt.ylabel('Storage ($m^3$)')
     plt.savefig('ks2_storage-outflow_ShowCase.png')
     plt.close()
-
-
-def calc2(length):
-    dt = 0.1
-    Rise = sh.DownToUp(3)
-    std = pickle.load(open('Steady_fit/SQ_Steady.pick', 'r'))
-
-    max_t = 1800.0
-
-    q_curve = list()
-    s_curve = list()
-
-    S0 = std.ie_to_storage(10.0/3600*10**-3)
-    Q0 = std.ie_to_outflow(10.0/3600*10**-3)
-
-    q_curve.append([0.0, Q0])
-    s_curve.append([0.0, S0])
-
-    print(S0, std.ie_to_storage(30.0/3600*10**-3))
-
-    max_S = std.ie_to_storage(30.0/3600*10**-3)
-    max_Q = std.ie_to_outflow(30.0/3600*10**-3)
-    dS = length*(30.0/3600*10**-3)*dt
-    print(Rise.s_to_q(3.0, 2*S0/max_S)*std.ie_to_outflow(30.0/3600*10**-3))
-    print(dS, Rise.s_to_q(3.0, (S0 + 0.5*dS)/max_S)*max_Q)
-
-    t = 0.0
-    S = S0
-    k = 3.0  # Test setting
-    while t < max_t:
-        t = t + dt
-        c_ie = 30.0/3600*10**-3
-        max_S = std.ie_to_storage(c_ie)
-        max_Q = std.ie_to_outflow(c_ie)
-
-        dS = length*c_ie*dt
-        #  print (S + 0.5*dS)/max_S
-        Q = Rise.s_to_q(k, (S + 0.5*dS)/max_S)*max_Q
-
-        S = S + dS - Q*dt
-        s_curve.append([t, S])
-        q_curve.append([t, Q])
-
-    q_curve = np.array(q_curve)
-    s_curve = np.array(s_curve)
-
-    ab = an.trans_ana(10.0, 30.0, 100.0, 201, 1.0, 0.1, 0.01)
-    ab.run()
-
-    plt.figure
-    plt.plot(s_curve[:, 0], s_curve[:, 1], '-b', label='BKW-Outflow')
-    ab.plot_ST(LT='--r')
-    plt.show()
 
 
 def calc_testk(rain_rec, length):

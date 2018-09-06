@@ -842,6 +842,26 @@ class fit_steady:
                                     self.save_name + '_Steady.pick', 'r'))
         self.__dict__.update(tmp_dict)
 
+    def bzCurve(self):
+        # Start from zero
+        self.steady_q.tolist().insert(0, 0.)
+        self.steady_s.tolist().insert(0, 0.)
+
+        t = np.arange(0., 1.0001, 1./10)
+        Q = np.interp(t, self.ie/max(self.ie), self.steady_q)
+        S = np.interp(t, self.ie/max(self.ie), self.steady_s)
+
+        std_SQ = np.array([zip(Q, S)])[0]
+        p, t = bf.fit(std_SQ, 2, 1.0E-8)
+        print p
+
+        p[0] = [0, 0]
+        p[-1] = std_SQ[-1]
+        t = np.arange(0., 1.0001, 1./100)
+        f_std_SQ = bf.gen(t, 2, p)
+
+        return f_std_SQ, t
+
     def steady_SQ(self):
         length = self.L
         m = self.m
