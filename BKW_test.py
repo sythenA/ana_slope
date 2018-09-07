@@ -151,6 +151,7 @@ def getK(S, Q, pre_ie, c_ie, std, Rise, Fall, SDR, SWR):
                 (std.ie_to_storage(c_ie)/max_S)**(5.0/3) - 0.01)
             curve, T = Fall.getCurve(k, maxS, maxQ)
         elif k1 > 1:  # Call SWC
+
     print('k=%f' % k)
 
 

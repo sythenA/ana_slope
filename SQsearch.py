@@ -388,7 +388,7 @@ def run_RisingLimb_fit():
     ks1 = [1.01, 1.05, 1.1, 1.2, 1.6, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 6.0,
            7.0, 8.0, 9.0, 10.0, 15.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0,
            90.0, 100.0]
-    ab = st.RisingLimb_fit(ks1, rec_name='ks1_Rise', save_name='fit_1')
+    ab = st.RisingLimb_fit('ks1', 'fit_1')
     ab.run()
     ab.SaveResult()
 
@@ -418,7 +418,7 @@ def run_FallingLimb_fit():
            7.0, 8.0, 9.0, 10.0, 15.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0,
            90.0, 100.0]
 
-    ab = st.FallingLimb_fit(ks1, rec_name='ks1_Fall', save_name='fit_1')
+    ab = st.FallingLimb_fit('ks1', 'fit_1')
     ab.run()
     ab.SaveResult()
     """

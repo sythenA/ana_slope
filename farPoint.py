@@ -438,6 +438,14 @@ class SWRCurves:
         self.header = header
         self.PTs = PTs
 
+    def doubleHeader(self):
+        header = self.header
+        Sheader = list()
+        for qhead in header:
+            swc, t = self.interpCurve(qhead)
+            Sheader.append(swc[-1, 1])
+        self.Sheader = Sheader
+
     def readRec(self, recFile):
         a = pickle.load(open(recFile, 'r'))
         self.header = a['header']
@@ -467,6 +475,7 @@ class SWRCurves:
 
         self.PPlist = PPList
         self.Tlist = Tlist
+        self.doubleHeader()
 
     def interpCurve(self, gamma):
         header = self.header
@@ -485,7 +494,7 @@ class SWRCurves:
     def interpS(self, S, S_curve, T):
         # Return all possible value in t corresponds to storage in a SDR curve.
         sol = list()
-        for i in range(1, len(T)):
+        for i in range(1, len(S_curve)):
             if (S_curve[i-1] - S)*(S_curve[i] - S) < 0:
                 t0 = T[i-1]
                 t1 = T[i]
@@ -500,7 +509,7 @@ class SWRCurves:
     def interpQtoT(self, Q, t0, Q_curve, T):
         # Return the closiest value of q in bezeir-curve-fit.
         sol = list()
-        for i in range(1, len(T)):
+        for i in range(1, len(Q_curve)):
             if (Q_curve[i-1]-Q)*(Q_curve[i]-Q) < 0:
                 t1 = T[i-1]
                 t2 = T[i]
@@ -549,6 +558,8 @@ class SWRCurves:
         elif len(s_to_t) == 1:
             t = s_to_t[0]
             Q1 = np.interp(t, T, q)
+        else:
+            return None, None
 
         return Q1, t
 
@@ -556,16 +567,36 @@ class SWRCurves:
         g1 = init_g
         g0 = 1.0
         error = 100.0
-        error0 = 100.0
-        while error < 1.0E-8:
-            swc = self.interpCurve(g1)
+
+        # Initial guess
+        swc, Tswc = self.interpCurve(g0)
+        swc[:, 0] = swc[:, 0]*Q
+        swc[:, 1] = swc[:, 1]*S
+        error0 = min(np.sqrt((swc[-1, 0] - curve[:, 0])**2 +
+                             (swc[-1, 1] - curve[:, 1])**2))
+        while error > 1.0E-4:
+            swc, Tswc = self.interpCurve(g1)
             swc[:, 0] = swc[:, 0]*Q
             swc[:, 1] = swc[:, 1]*S
+
+            t = self.interpS(swc[-1, 1], curve[:, 1], Tc)
+            print(t)
+
+            """
             Q1, t1 = self.SCQuerry(curve, Tc, swc[-1, 1])
-            error = abs(swc[-1, 0]-Q1)
+
+            if Q1:
+                error = abs(swc[-1, 0]-Q1)
+            else:
+                error = min(np.sqrt((swc[-1, 0] - curve[:, 0])**2,
+                                    (swc[-1, 1] - curve[:, 1])**2))"""
+            error = min(np.sqrt((swc[-1, 0] - curve[:, 0])**2 +
+                                (swc[-1, 1] - curve[:, 1])**2))
 
             _g0 = g1
             g1 = g1 - (error-error0)/(g1-g0)
+            print(g1, g0)
+            print(error, error0)
             g0 = _g0
             error0 = error
 
@@ -579,6 +610,43 @@ class SWRCurves:
         gamma = self.iteration(init_gamma, S, Q, curve, T)
 
         return gamma
+
+    def lineIntersect(self, vec1, vec2, p1, p2):
+        a = vec1[1]*p1[0] - vec1[0]*p1[1]
+        b = vec2[1]*p2[0] - vec2[0]*p2[1]
+
+        upVc1 = np.array([[a, -vec1[0]], [b, -vec2[0]]])
+        dnVc1 = np.array([[vec1[1], -vec1[0]], [vec2[1], -vec2[0]]])
+        x = np.linalg.det(upVc1)/np.linalg.det(dnVc1)
+        upVc2 = np.array([[vec1[1], a], [vec2[1], b]])
+        y = np.linalg.det(upVc2)/np.linalg.det(dnVc1)
+
+        return x, y
+
+    def endFit2(self, S, Q, curve):
+        header = self.header
+        Sheader = self.Sheader
+
+        header = np.array(header)*Q
+        Sheader = np.array(Sheader)*S
+
+        for j in range(1, len(curve)):
+            Q0 = np.interp(curve[j-1, 1], Sheader, header)
+            Q1 = np.interp(curve[j, 1], Sheader, header)
+            print(curve[j-1, 0] - Q0, curve[j, 0] - Q1)
+            print(Q0/Q, Q1/Q)
+            if (curve[j-1, 0] - Q0)*(curve[j, 0] - Q1) < 0:
+                vec1 = [(curve[j, 0]-curve[j-1, 0]),
+                        (curve[j, 1]-curve[j-1, 1])]
+                vec2 = [Q1-Q0, curve[j, 1]-curve[j-1, 1]]
+                p1 = [curve[j, 0], curve[j, 1]]
+                p2 = [Q1, curve[j, 1]]
+
+                Q, S = self.lineIntersect(vec1, vec2, p1, p2)
+
+                return Q, S
+
+        return None, None
 
 
 def interpS(S, S_curve, T):

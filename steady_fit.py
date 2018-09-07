@@ -18,7 +18,7 @@ def mat_flip(mat):
 
 class FallingLimb_gen:
     def __init__(self, length, dt, n, slope, ks, rec_name='',
-                 folder='ana_slope/Steady_fit', gen=False):
+                 folder='Steady_fit', gen=False):
         self.length = length
         self.dt = dt
         self.n = n
@@ -42,11 +42,6 @@ class FallingLimb_gen:
             out_s = self.REC['S'][key_str]
             out_q = self.REC['Q'][key_str]
 
-            """
-            lst = np.arange(len(out_q)*0.01, len(out_q)*0.95, len(out_q)/15.)
-            for j in range(0, len(lst)):
-                lst[j] = int(lst[j])
-            """
             sq = np.zeros([16, 2])
             sq[0:16, 0] = np.arange(0, 1.01, 1./15)
             sq[-1, 0] = 1.0
@@ -54,13 +49,6 @@ class FallingLimb_gen:
                                  mat_flip(out_q)[:, 1])
             sq[:, 0] = mat_flip(sq[:, 0])
             sq[:, 1] = mat_flip(sq[:, 1])
-
-            """
-            sq = list()
-            sq.append([1.0, 1.0])
-            for j in range(0, len(lst)):
-                sq.append([out_s[lst[j], 1], out_q[lst[j], 1]])
-            sq = np.array(sq)"""
 
             p, t = bf.fit(sq, 6, 10**-6)
             p[0, :] = [1.0, 1.0]
@@ -73,7 +61,7 @@ class FallingLimb_gen:
 
         if self.rec_name:
             pickle.dump(param, open(self.folder + '/' +
-                                    self.rec_name + '_Fall_param.flow', 'w'))
+                                    self.rec_name + '_param.flow', 'w'))
 
     def run(self):
         if self.gen:
@@ -188,7 +176,7 @@ class FallingLimb_fit:
     """Load parameters of falling limb s-q curve, then build interpolation
     function of curve."""
     def __init__(self, rec_name='', save_name='',
-                 folder='ana_slope/Steady_fit', **kwargs):
+                 folder='Steady_fit', **kwargs):
 
         param = pickle.load(
             open(folder + '/' + rec_name + '_Fall_param.flow', 'r'))
@@ -207,7 +195,7 @@ class FallingLimb_fit:
         folder = self.folder
 
         tmp_dict = pickle.load(open(folder + '/' + save_name +
-                               '_FallLimb.pick', 'rb'))
+                               '_FallLimb.pick', 'r'))
         self.__dict__.update(tmp_dict)
 
     def mat_flip(self, mat):
@@ -421,7 +409,7 @@ class FallingLimb_fit:
 
 class RisingLimb_gen:
     def __init__(self, length, dt, n, slope, ks, rec_name='',
-                 folder='ana_slope/Steady_fit', gen=False):
+                 folder='Steady_fit', gen=False):
         self.length = length
         self.dt = dt
         self.n = n
@@ -477,7 +465,7 @@ class RisingLimb_gen:
 
         if self.rec_name:
             pickle.dump(param, open(self.folder + '/' +
-                                    self.rec_name + '_Rise_param.flow', 'w'))
+                                    self.rec_name + '_param.flow', 'w'))
 
     def gen_rec(self):
         dt = self.dt
@@ -592,7 +580,7 @@ class RisingLimb_fit:
     """Load parameters of rising limb s-q curve, then build interpolation
     function of curve."""
     def __init__(self, rec_name='', save_name='',
-                 folder='ana_slope/Steady_fit', **kwargs):
+                 folder='Steady_fit', **kwargs):
 
         param = pickle.load(
             open(folder + '/' + rec_name + '_Rise_param.flow', 'r'))
@@ -853,7 +841,7 @@ class fit_steady:
 
         std_SQ = np.array([zip(Q, S)])[0]
         p, t = bf.fit(std_SQ, 2, 1.0E-8)
-        print p
+        print(p)
 
         p[0] = [0, 0]
         p[-1] = std_SQ[-1]
