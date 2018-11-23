@@ -4,6 +4,7 @@ import os.path
 import numpy as np
 import ana_new as aw
 import matplotlib.pyplot as plt
+from scipy.interpolate import interp1d
 from math import sqrt
 import pickle
 import bezeir_fit as bf
@@ -28,40 +29,68 @@ class FallingLimb_gen:
         self.rec_name = rec_name
         self.folder = folder
         self.gen = gen
+        self.header = list()
+        self.curve = list()
 
     def load(self):
         rec_file = self.folder + '/' + self.rec_name + '_CurveRec.flow'
         REC = pickle.load(open(rec_file, 'r'))
         self.REC = REC
+        self.header = REC['header']
+        self.curve = REC['curve']
 
     def fit(self):
-        ks = self.ks
-        param = dict()
-        for k in ks:
-            key_str = 'k=' + str(float(k))
-            out_s = self.REC['S'][key_str]
-            out_q = self.REC['Q'][key_str]
+        param = list()
+        counter = 0
+        for k in self.header:
 
+            curve = np.array(self.curve[counter])
             sq = np.zeros([16, 2])
-            sq[0:16, 0] = np.arange(0, 1.01, 1./15)
-            sq[-1, 0] = 1.0
-            sq[:, 1] = np.interp(sq[:, 0], mat_flip(out_s[0:len(out_q), 1]),
-                                 mat_flip(out_q)[:, 1])
-            sq[:, 0] = mat_flip(sq[:, 0])
-            sq[:, 1] = mat_flip(sq[:, 1])
 
-            p, t = bf.fit(sq, 6, 10**-6)
+            zT = np.arange(0., 1.00000001, 1./(len(curve)-1))
+            t = np.arange(0., 1.00001, 1./15)
+
+            fQ = interp1d(zT, curve[:, 0])
+            fS = interp1d(zT, curve[:, 1])
+
+            sq[:, 0] = fQ(t)
+            sq[:, 1] = fS(t)
+
+            p, t = bf.fit(sq, 4, 10**-6)
             p[0, :] = [1.0, 1.0]
             p[-1, :] = [0.0, 0.0]
 
-            param.update({'k='+str(k): p})
+            param.append(p)
+            counter += 1
 
         self.param = param
-        self.param.update({'k': ks})
 
         if self.rec_name:
-            pickle.dump(param, open(self.folder + '/' +
-                                    self.rec_name + '_param.flow', 'w'))
+            pickle.dump({'param': param, 'header': self.header},
+                        open(self.folder + '/' + self.rec_name +
+                             '_param.flow', 'w'))
+
+    def eff_coeifficent(self):
+        self.eff = list()
+        param = self.param
+
+        for j in range(0, len(param)):
+            t = np.arange(0, 1.00001, 1./100)
+            p = param[j]
+            curve = bf.gen(t, len(p)-1, p)
+            _curve = np.array(self.curve[j])
+
+            for j in range(0, len(_curve[:, 1])):
+                if _curve[j, 1] < 0:
+                    _curve[j, 1] = 0.
+
+            fQ = interp1d(curve[:, 1], curve[:, 0])
+            Q = fQ(_curve[:, 1])
+
+            eff = 1 - np.sum((Q - _curve[:, 0])**2)/np.sum(
+                (Q - np.mean(_curve[:, 0]))**2)
+            self.eff.append(eff)
+        plt.plot(1./np.array(self.ks), self.eff, 'b+')
 
     def run(self):
         if self.gen:
@@ -78,15 +107,13 @@ class FallingLimb_gen:
         length = self.length
         ks = self.ks
 
-        out_rec = dict()
-        sto_rec = dict()
-
         self.Steady_SQ()
         for k in range(0, len(self.ks)):
             ie1 = 10.0
             aa = aw.trans_ana(ie1*self.ks[k], ie1, length, 201, dt, n, slope)
             aa.run()
 
+            # Normalize outflow and storage curve
             out_s = aa.out_s
             out_q = aa.out_q
             out_s[:, 0] = out_s[:, 0]/aa.max_t
@@ -94,10 +121,12 @@ class FallingLimb_gen:
             out_q[:, 0] = out_q[:, 0]/aa.max_t
             out_q[:, 1] = (out_q[:, 1] - aa.min_q)/(aa.max_q - aa.min_q)
 
-            out_rec.update({'k='+str(ks[k]): out_q})
-            sto_rec.update({'k='+str(ks[k]): out_s})
+            # Keep outflow-storage curve
+            curve = [zip(out_q[:, 1], out_s[:, 1])][0]
+            self.header.append(ks[k])
+            self.curve.append(curve)
 
-        REC = {'S': sto_rec, 'Q': out_rec}
+        REC = {'header': self.header, 'curve': self.curve}
         self.REC = REC
 
         if self.rec_name:
@@ -143,52 +172,41 @@ class FallingLimb_gen:
             sq[:, 0] = sq[:, 0]*(max_s - min_s) + min_s
 
             plt.plot(sq[:, 1], sq[:, 0])
+            plt.plot(self.curve[k][:, 0], self.curve[k][:, 1], '--b')
+
+        plt.savefig('Falling_Fitting.png')
+        plt.close()
 
     def plot_norm_SQ(self):
-        ks = self.ks
         param = self.param
-        REC = self.REC
 
-        dot_s = np.arange(0, 0.901, 0.01)
-        dot_s = dot_s.tolist()
-        for k in range(0, len(ks)):
-            _str = 'k=' + str(ks[k])
-            out_s = REC['S'][_str][:, 1]
-            out_q = REC['Q'][_str][:, 1]
-            p = param[_str]
-            sq = bf.gen(dot_s, 6, p)
+        for j in range(0, len(param)):
+            t = np.arange(0, 1.00001, 1./100)
+            p = param[j]
+            curve = bf.gen(t, len(p)-1, p)
+            _curve = np.array(self.curve[j])
 
-            sq = sq.tolist()
-            sq.append([0.0, 0.0])
-            sq = np.array(sq)
-            """
-            q_fun = np.poly1d(p)
-            dot_q = q_fun(dot_s)
-            dot_q[0] = 0.0
-            dot_q[-1] = 1.0
-            """
-            plt.plot(sq[:, 1], sq[:, 0], 'r')
-            #  plt.plot(dot_s, dot_q, '-r')
-            plt.plot(out_q, out_s[0: len(out_q)], '--b')
+            plt.plot(curve[:, 0], curve[:, 1], '-r')
+            plt.plot(_curve[:, 0], _curve[:, 1], '--b')
+
+        plt.savefig('Falling_Fitting.png', dpi=150)
+        plt.close()
 
 
 class FallingLimb_fit:
     """Load parameters of falling limb s-q curve, then build interpolation
     function of curve."""
-    def __init__(self, rec_name='', save_name='',
-                 folder='Steady_fit', **kwargs):
+    def __init__(self, rec_name='', folder='Steady_fit', **kwargs):
 
         param = pickle.load(
-            open(folder + '/' + rec_name + '_Fall_param.flow', 'r'))
+            open(folder + '/' + rec_name + '_Fall_param.flow', 'r'))['param']
+        header = pickle.load(
+            open(folder + '/' + rec_name + '_Fall_param.flow', 'r'))['header']
 
         self.param = param
         self.folder = folder
-        self.ks = param['k']
-        self.save_name = save_name
-
-    def run(self):
+        self.ks = header
         self.p_fit()
-        self.SaveResult()
 
     def load(self):
         save_name = self.save_name
@@ -223,137 +241,64 @@ class FallingLimb_fit:
 
         return dPdk
 
-    def plot_p(self, r):
-        param = self.param
-
-        _px = list()
-        _py = list()
-        for k in range(0, len(self.ks)):
-            key = 'k=' + str(self.ks[k])
-            p = param[key]
-
-            _px.append([1.0/self.ks[k], p[r, 0]])
-            _py.append([1.0/self.ks[k], p[r, 1]])
-
-        _px = np.array(_px)
-        _py = np.array(_py)
-        plt.plot(_px[:, 0], _px[:, 1], '-r', label='x')
-        plt.plot(_py[:, 0], _py[:, 1], '-k', label='y')
-
     def p_fit(self):
         param = self.param
-        deg = len(param['k=5.0'])-1
-        ks = self.ks
+        deg = len(param[0])-1
+        p_fun = list()
 
-        _px = np.zeros([len(ks), deg])
-        _py = np.zeros([len(ks), deg])
-        for k in range(0, len(ks)):
-            key = 'k=' + str(ks[k])
-            p = param[key]
+        points = list()
+        for j in range(1, deg):
+            _point = list()
+            for k in range(0, len(self.ks)):
+                _point.append(param[k][j])
+            points.append(_point)
 
-            _px[k, 0] = ks[k]
-            _py[k, 0] = ks[k]
-            _px[k, 1:deg] = p[1:deg, 0]
-            _py[k, 1:deg] = p[1:deg, 1]
+        Ps = list()
+        Ts = list()
 
-        self._px = _px
-        self._py = _py
+        for j in range(0, len(points)):
+            p, t = bf.fit(np.array(points[j]), 5, 1.0E-8)
+            Ps.append(p)
+            Ts.append(t)
 
-        self.zx = self.fit_px()
-        self.zy = self.fit_py()
+            t = np.arange(1.1, max(self.ks) + 1.0E-5,
+                          (max(self.ks) - 1.1)/100.0)
 
-        zx_fun = list()
-        zy_fun = list()
-        for i in range(0, len(self.zx)):
-            zx_fun.append(np.poly1d(self.zx[i]))
-            zy_fun.append(np.poly1d(self.zy[i]))
-        self.zx_fun = zx_fun
-        self.zy_fun = zy_fun
+            x = np.array(points[j])[:, 0]
+            y = np.array(points[j])[:, 1]
+            fx = interp1d(self.ks, x)
+            fy = interp1d(self.ks, y)
 
-    def fit_px(self):
-        _px = self._px
-        deg = len(_px[0])
+            p_fun.append([fx, fy])
 
-        zx = list()
-        for i in range(1, deg):
-            zx.append(np.polyfit(_px[:, 0], _px[:, i], 12))
+            _points = np.array(points[j])
+            plt.figure
+            plt.plot(_points[:, 0], _points[:, 1], 'b+')
+            plt.plot(fx(t[0:-1]), fy(t[0:-1]), 'k+')
+            plt.savefig('Falling_gen_p' + str(j+1) + '_fit.png', dpi=150)
 
-        return zx
+            plt.close()
 
-    def fit_py(self):
-        _py = self._py
-        deg = len(_py[0])
+        self.Ps = Ps
+        self.Ts = Ts
+        self.p_fun = p_fun
 
-        zy = list()
-        for i in range(1, deg):
-            zy.append(np.polyfit(_py[:, 0], _py[:, i], 12))
-
-        return zy
-
-    def plot_fit_p(self):
-        zx_fun = self.zx_fun
-        zy_fun = self.zy_fun
-        _px = self._px
-        _py = self._py
-
-        k = np.arange(min(self.ks), max(self.ks)+0.1, 0.1)
-
-        plt.figure
-        fig, axes = plt.subplots(nrows=2, ncols=3, figsize=(6, 6))
-
-        axes[0, 0].plot(k, zx_fun[0](k), '-r')
-        axes[0, 0].plot(k, zy_fun[0](k), '-k')
-        axes[0, 0].plot(_px[:, 0], _px[:, 1], '--r')
-        axes[0, 0].plot(_py[:, 0], _py[:, 1], '--k')
-        axes[0, 0].set_title('$P_1$')
-
-        axes[0, 1].plot(k, zx_fun[1](k), '-r')
-        axes[0, 1].plot(k, zy_fun[1](k), '-k')
-        axes[0, 1].plot(_px[:, 0], _px[:, 2], '--r')
-        axes[0, 1].plot(_py[:, 0], _py[:, 2], '--k')
-        axes[0, 1].set_title('$P_2$')
-
-        axes[0, 2].plot(k, zx_fun[2](k), '-r')
-        axes[0, 2].plot(k, zy_fun[2](k), '-k')
-        axes[0, 2].plot(_px[:, 0], _px[:, 3], '--r')
-        axes[0, 2].plot(_py[:, 0], _py[:, 3], '--k')
-        axes[0, 2].set_title('$P_3$')
-
-        axes[1, 0].plot(k, zx_fun[3](k), '-r')
-        axes[1, 0].plot(k, zy_fun[3](k), '-k')
-        axes[1, 0].plot(_px[:, 0], _px[:, 4], '--r')
-        axes[1, 0].plot(_py[:, 0], _py[:, 4], '--k')
-        axes[1, 0].set_title('$P_4$')
-
-        axes[1, 1].plot(k, zx_fun[4](k), '-r')
-        axes[1, 1].plot(k, zy_fun[4](k), '-k')
-        axes[1, 1].plot(_px[:, 0], _px[:, 5], '--r')
-        axes[1, 1].plot(_py[:, 0], _py[:, 5], '--k')
-        axes[1, 1].set_title('$P_5$')
-
-        plt.show()
-
-    def px(self, inv_k):
+    def get_P(self, inv_k):
+        # Input inverse_k, change to k interpolate
+        p_fun = self.p_fun
         k = 1./inv_k
-        zx_fun = self.zx_fun
-        deg = len(zx_fun) + 2
-        _px = np.zeros(deg)
-        _px[-1] = 1.0
-        for j in range(1, deg-1):
-            _px[j] = zx_fun[j-1](k)
 
-        return _px
+        p = list()
+        p.append([1.0, 1.0])
+        for j in range(0, len(p_fun)):
+            fx = p_fun[j][0]
+            fy = p_fun[j][1]
 
-    def py(self, inv_k):
-        k = 1./inv_k
-        zy_fun = self.zy_fun
-        deg = len(zy_fun) + 2
-        _py = np.zeros(deg)
-        _py[-1] = 1.0
-        for j in range(1, deg-1):
-            _py[j] = zy_fun[j-1](k)
+            p.append([fx(k), fy(k)])
 
-        return _py
+        p.append([0.0, 0.0])
+
+        return p
 
     def ref_points(self, inv_k):
         x = self.px(inv_k)
@@ -366,21 +311,12 @@ class FallingLimb_fit:
         return P
 
     def SQ_curve(self, inv_k):
-        k = 1./inv_k
-        zx_fun = self.zx_fun
-        zy_fun = self.zy_fun
+        P = self.get_P(inv_k)
+        t = np.arange(0., 1.00001, 1./100)
 
-        deg = len(zy_fun) + 1
-        P = np.zeros([deg+1, 2])
-        P[0, :] = [1.0, 1.0]
-        P[-1, :] = [0.0, 0.0]
-        for i in range(0, deg-1):
-            P[i+1, 0] = zx_fun[i](k)
-            P[i+1, 1] = zy_fun[i](k)
+        curve = bf.gen(t, len(P)-1, P)
 
-        t = np.arange(0.0, 1.01, 0.01)
-        val = bf.gen(t, deg, P)
-        return val
+        return curve
 
     def NS_to_NQ(self, nS, inv_k):
         #  Normalized storage to find normalized outflow with assigned
@@ -401,11 +337,6 @@ class FallingLimb_fit:
 
         return nt
 
-    def SaveResult(self):
-        pickle.dump(self.__dict__,
-                    open(self.folder + '/' + self.save_name +
-                         '_FallLimb.pick', 'w'))
-
 
 class RisingLimb_gen:
     def __init__(self, length, dt, n, slope, ks, rec_name='',
@@ -421,51 +352,42 @@ class RisingLimb_gen:
         self.gen = gen
 
     def load(self):
-        _file = self.folder + '/' + self.rec_name + '_CurveRec.flow'
-        REC = pickle.load(open(_file, 'r'))
+        rec_file = self.folder + '/' + self.rec_name + '_CurveRec.flow'
+        REC = pickle.load(open(rec_file, 'r'))
         self.REC = REC
+        self.header = REC['header']
+        self.curve = REC['curve']
 
     def fit(self):
-        REC = self.REC
+        param = list()
+        counter = 0
+        for k in self.header:
 
-        bez_deg = 6
-        self.bez_deg = bez_deg
+            curve = np.array(self.curve[counter])
+            sq = np.zeros([16, 2])
 
-        ks = self.ks
-        param = dict()
-        for k in ks:
-            key_str = 'k=' + str(float(k))
-            out_s = REC['S'][key_str]
-            out_q = REC['Q'][key_str]
-            """
-            lst = np.arange(len(out_q)*0.1, len(out_q)*0.96, len(out_q)/20.)
-            for j in range(0, len(lst)):
-                lst[j] = int(lst[j])
-            """
-            sq = np.zeros([15, 2])
-            sq[:, 0] = np.arange(0, 1.001, 1./14)
-            sq[:, 1] = np.interp(sq[:, 0], out_s[0:len(out_q), 1], out_q[:, 1])
+            zT = np.arange(0., 1.00000001, 1./(len(curve)-1))
+            t = np.arange(0., 1.00001, 1./15)
 
-            """
-            sq = list()
-            sq.append([0.0, 0.0])
-            for j in range(0, len(lst)):
-                sq.append([out_s[lst[j], 1], out_q[lst[j], 1]])
-            sq = np.array(sq)
-            """
+            fQ = interp1d(zT, curve[:, 0])
+            fS = interp1d(zT, curve[:, 1])
 
-            p, t = bf.fit(sq, bez_deg, 10**-6)
-            p[0, :] = [0.0, 0.0]
-            p[-1, :] = [1.0, 1.0]
+            sq[:, 0] = fQ(t)
+            sq[:, 1] = fS(t)
 
-            param.update({'k='+str(k): p})
+            p, t = bf.fit(sq, 4, 10**-6)
+            p[0, :] = [1.0, 1.0]
+            p[-1, :] = [0.0, 0.0]
+
+            param.append(p)
+            counter += 1
 
         self.param = param
-        self.param.update({'k': ks})
 
         if self.rec_name:
-            pickle.dump(param, open(self.folder + '/' +
-                                    self.rec_name + '_param.flow', 'w'))
+            pickle.dump({'param': param, 'header': self.header},
+                        open(self.folder + '/' + self.rec_name +
+                             '_param.flow', 'w'))
 
     def gen_rec(self):
         dt = self.dt
@@ -474,28 +396,26 @@ class RisingLimb_gen:
         length = self.length
         ks = self.ks
 
-        out_rec = dict()
-        sto_rec = dict()
-
-        for k in range(0, len(ks)):
-            ie0 = 10.0
-            aa = aw.trans_ana(ie0, ie0*ks[k], length, 201, dt, n, slope)
+        self.Steady_SQ()
+        for k in range(0, len(self.ks)):
+            ie1 = 10.0
+            aa = aw.trans_ana(ie1*self.ks[k], ie1, length, 201, dt, n, slope)
             aa.run()
 
+            # Normalize outflow and storage curve
             out_s = aa.out_s
             out_q = aa.out_q
             out_s[:, 0] = out_s[:, 0]/aa.max_t
-            out_s[:, 1] = (out_s[:, 1] - min(out_s[:, 1]))/(max(out_s[:, 1]) -
-                                                            min(out_s[:, 1]))
+            out_s[:, 1] = (out_s[:, 1] - aa.min_s)/(aa.max_s - aa.min_s)
             out_q[:, 0] = out_q[:, 0]/aa.max_t
-            out_q[:, 1] = (out_q[:, 1] - min(out_q[:, 1]))/(max(out_q[:, 1]) -
-                                                            min(out_q[:, 1]))
+            out_q[:, 1] = (out_q[:, 1] - aa.min_q)/(aa.max_q - aa.min_q)
 
-            out_rec.update({'k='+str(ks[k]): out_q})
-            sto_rec.update({'k='+str(ks[k]): out_s})
+            # Keep outflow-storage curve
+            curve = [zip(out_q[:, 1], out_s[:, 1])][0]
+            self.header.append(ks[k])
+            self.curve.append(curve)
 
-        REC = {'S': sto_rec, 'Q': out_rec}
-
+        REC = {'header': self.header, 'curve': self.curve}
         self.REC = REC
 
         if self.rec_name:
@@ -526,8 +446,7 @@ class RisingLimb_gen:
             max_s = m/(m+1)*(ie1*length**(m+1)/alpha)*(1/m)
             min_s = m/(m+1)*(ie0*length**(m+1)/alpha)*(1/m)
 
-            _str = 'k=' + str(ks[k])
-            p = param[_str]
+            p = param[k]
             dot_s = np.arange(0, 1.001, 0.01)
             dot_q = bf.gen(dot_s, 6, p)
 
@@ -536,25 +455,30 @@ class RisingLimb_gen:
 
             plt.plot(q, dot_s)
 
+        plt.savefig('Rising_Fitting.png')
+        plt.close()
+
     def plot_norm_SQ(self):
         #  max_k = self.max_k
         param = self.param
-        ks = self.ks
-        REC = self.REC
+        ks = self.header
+        curve = self.curve
 
         dot_s = np.arange(0, 0.981, 0.01)
         dot_s = dot_s.tolist()
         dot_s.append(1.0)
         dot_s - np.array(dot_s)
         for k in range(0, len(ks)):
-            _str = 'k=' + str(ks[k])
-            p = param[_str]
-            out_s = REC['S'][_str]
-            out_q = REC['Q'][_str]
+            p = param[k]
+            out_s = curve[k][:, 1]
+            out_q = curve[k][:, 0]
             dot_q = bf.gen(dot_s, self.bez_deg, p)
 
             plt.plot(dot_q[:, 1], dot_q[:, 0], '-b')
             plt.plot(out_q[:, 1], out_s[0:len(out_q[:, 1]), 1], '--r')
+
+        plt.savefig('Falling_Fitting.png', dpi=150)
+        plt.close()
 
     def Steady_SQ(self):
         n = self.n
@@ -583,11 +507,15 @@ class RisingLimb_fit:
                  folder='Steady_fit', **kwargs):
 
         param = pickle.load(
-            open(folder + '/' + rec_name + '_Rise_param.flow', 'r'))
+            open(folder + '/' + rec_name + '_Rise_param.flow', 'r'))['param']
+        header = pickle.load(
+            open(folder + '/' + rec_name + '_Rise_param.flow', 'r'))['header']
 
         self.param = param
         self.folder = folder
-        self.ks = param['k']
+        self.ks = header
+        self.p_fit()
+
         self.save_name = save_name
 
     def run(self):
@@ -615,8 +543,7 @@ class RisingLimb_fit:
         py = list()
 
         for k in range(0, len(ks)):
-            key = 'k=' + str(ks[k])
-            p = param[key]
+            p = param[k]
 
             px.append([ks[k], p[r, 0]])
             py.append([ks[k], p[r, 1]])
@@ -628,112 +555,69 @@ class RisingLimb_fit:
 
     def p_fit(self):
         param = self.param
-        ks = self.ks
+        deg = len(param[0])-1
+        p_fun = list()
 
-        deg = len(param['k=5.0']) - 1
+        points = list()
+        for j in range(1, deg):
+            _point = list()
+            for k in range(0, len(self.ks)):
+                _point.append(param[k][j])
+            points.append(_point)
 
-        _px = np.zeros([len(ks), deg])
-        _py = np.zeros([len(ks), deg])
-        for k in range(0, len(ks)):
-            key = 'k=' + str(ks[k])
-            p = param[key]
+        Ps = list()
+        Ts = list()
 
-            _px[k, 0] = ks[k]
-            _px[k, 1:deg] = p[1:deg, 0]
-            _py[k, 0] = ks[k]
-            _py[k, 1:deg] = p[1:deg, 1]
+        for j in range(0, len(points)):
+            p, t = bf.fit(np.array(points[j]), 5, 1.0E-8)
+            Ps.append(p)
+            Ts.append(t)
 
-        self._px = _px
-        self._py = _py
+            t = np.arange(1.1, max(self.ks) + 1.0E-5,
+                          (max(self.ks) - 1.1)/100.0)
 
-        self.zx = self.fit_px()
-        self.zy = self.fit_py()
+            x = np.array(points[j])[:, 0]
+            y = np.array(points[j])[:, 1]
+            fx = interp1d(self.ks, x)
+            fy = interp1d(self.ks, y)
 
-        zx_fun = list()
-        zy_fun = list()
-        for i in range(0, len(self.zx)):
-            zx_fun.append(np.poly1d(self.zx[i]))
-            zy_fun.append(np.poly1d(self.zy[i]))
-        self.zx_fun = zx_fun
-        self.zy_fun = zy_fun
+            p_fun.append([fx, fy])
 
-    def fit_px(self):
-        _px = self._px
+            _points = np.array(points[j])
+            plt.figure
+            plt.plot(_points[:, 0], _points[:, 1], 'b+')
+            plt.plot(fx(t[0:-1]), fy(t[0:-1]), 'k+')
+            plt.savefig('Falling_gen_p' + str(j+1) + '_fit.png', dpi=150)
 
-        z = list()
-        for i in range(1, len(_px[0])):
-            z.append(np.polyfit(_px[:, 0], _px[:, i], 6))
+            plt.close()
 
-        return z
+        self.Ps = Ps
+        self.Ts = Ts
+        self.p_fun = p_fun
 
-    def fit_py(self):
-        _py = self._py
+    def get_P(self, k):
+        # Input inverse_k, change to k interpolate
+        p_fun = self.p_fun
 
-        z = list()
-        for i in range(1, len(_py[0])):
-            z.append(np.polyfit(_py[:, 0], _py[:, i], 6))
+        p = list()
+        p.append([1.0, 1.0])
+        for j in range(0, len(p_fun)):
+            fx = p_fun[j][0]
+            fy = p_fun[j][1]
 
-        return z
+            p.append([fx(k), fy(k)])
 
-    def plot_fit_p(self):
+        p.append([0.0, 0.0])
 
-        zx_fun = self.zx_fun
-        zy_fun = self.zy_fun
-        _px = self._px
-        _py = self._py
-
-        k = np.arange(min(self.ks), max(self.ks)+0.1, 0.1)
-
-        plt.figure
-        fig, axes = plt.subplots(nrows=2, ncols=3, figsize=(6, 6))
-
-        axes[0, 0].plot(k, zx_fun[0](k), '-r')
-        axes[0, 0].plot(k, zy_fun[0](k), '-k')
-        axes[0, 0].plot(_px[:, 0], _px[:, 1], '--r')
-        axes[0, 0].plot(_py[:, 0], _py[:, 1], '--k')
-        axes[0, 0].set_title('$P_1$')
-
-        axes[0, 1].plot(k, zx_fun[1](k), '-r')
-        axes[0, 1].plot(k, zy_fun[1](k), '-k')
-        axes[0, 1].plot(_px[:, 0], _px[:, 2], '--r')
-        axes[0, 1].plot(_py[:, 0], _py[:, 2], '--k')
-        axes[0, 1].set_title('$P_2$')
-
-        axes[0, 2].plot(k, zx_fun[2](k), '-r')
-        axes[0, 2].plot(k, zy_fun[2](k), '-k')
-        axes[0, 2].plot(_px[:, 0], _px[:, 3], '--r')
-        axes[0, 2].plot(_py[:, 0], _py[:, 3], '--k')
-        axes[0, 2].set_title('$P_3$')
-
-        axes[1, 0].plot(k, zx_fun[3](k), '-r')
-        axes[1, 0].plot(k, zy_fun[3](k), '-k')
-        axes[1, 0].plot(_px[:, 0], _px[:, 4], '--r')
-        axes[1, 0].plot(_py[:, 0], _py[:, 4], '--k')
-        axes[1, 0].set_title('$P_4$')
-
-        axes[1, 1].plot(k, zx_fun[4](k), '-r')
-        axes[1, 1].plot(k, zy_fun[4](k), '-k')
-        axes[1, 1].plot(_px[:, 0], _px[:, 5], '--r')
-        axes[1, 1].plot(_py[:, 0], _py[:, 5], '--k')
-        axes[1, 1].set_title('$P_5$')
-
-        plt.show()
+        return p
 
     def SQ_curve(self, k):
-        zx_fun = self.zx_fun
-        zy_fun = self.zy_fun
+        P = self.get_P(k)
+        t = np.arange(0., 1.00001, 1./100)
 
-        deg = len(zy_fun) + 1
-        P = np.zeros([deg+1, 2])
-        P[0, :] = [0.0, 0.0]
-        P[-1, :] = [1.0, 1.0]
-        for i in range(0, deg-1):
-            P[i+1, 0] = zx_fun[i](k)
-            P[i+1, 1] = zy_fun[i](k)
+        curve = bf.gen(t, len(P)-1, P)
 
-        t = np.arange(0.0, 1.01, 0.01)
-        val = bf.gen(t, deg, P)
-        return val
+        return curve
 
     def NS_to_t(self, nS, k):
         val = self.SQ_curve(k)

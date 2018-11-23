@@ -49,21 +49,19 @@ class two_step_overland:
 
         self.steady_sq()
 
-    def ie1_duration(self, t1):
-        self.t1 = t1
-        self.state_at_t1()
-        self.ie1_xs()
+    def ie1_duration(self, d):
+        self.d = d
         self.ie1_term_time()
-        self.xs_to_L()
 
-    def ie1_xs(self):
         ie1 = self.ie1
+        ie2 = self.ie2
         m = self.m
         alpha = self.alpha
-        t1 = self.t1
+        L = self.L
 
-        xs = alpha/ie1*(ie1*t1)**m
-        self.xs1 = xs
+        self.tr = ((ie2**(1-m)/alpha*(
+            L + (ie1*d)**m*(alpha/ie2 - alpha/ie1)))**(1/m) -
+                   ie1/ie2*d)
 
     def storage(self, h_on_x):
         L = self.L
@@ -121,7 +119,6 @@ class two_step_overland:
         ie1 = self.ie1
         alpha = self.alpha
         m = self.m
-        print (L*ie1**(1-m)/alpha)**(1/m)
         self.t_ie1 = (L*ie1**(1-m)/alpha)**(1/m)
 
     def plot_depth(self, depth_rec):
@@ -132,7 +129,6 @@ class two_step_overland:
         for recs in depth_rec:
             t = recs[0]
             if int(t) % 5 == 0:
-                print t
                 fig, axes = plt.subplots(nrows=1, ncols=2, figsize=(14, 6))
                 axes[0].plot(x, recs[1], '-r')
                 axes[0].set_xlabel('m')
@@ -152,101 +148,217 @@ class two_step_overland:
                 fig.savefig(folder + '/depth_change/' + filename.zfill(10))
                 plt.close()
 
-    def state_at_t1(self):
-        t1 = self.t1
-        x = self.x
-        grds = self.grds
+    def iterType1(self, ie0, ie1, xE, t):
+        alpha = self.alpha
+        m = self.m
+        L = self.L
+        xs0 = 0.  # Initial Guess
+        xs1 = L
+        xs = 0.5*(xs1 + xs0)
+        Err = abs(xs1 - xs0)
+        CondReached = False
+        counter = 0
+
+        while not CondReached:
+            h0 = (ie0*xs/alpha)**(1/m) + ie1*t
+
+            f = (xE - xs - alpha/ie1*(h0)**m + ie0/ie1*xs)
+
+            Err = abs(xs - xs1)
+            counter += 1
+
+            if f > 0.:
+                xs0 = 0.5*(xs + xs0)
+            elif f < 0.:
+                xs1 = 0.5*(xs + xs1)
+            else:
+                CondReached = True
+
+            if Err < 1.0e-6 or counter > 100:
+                CondReached = True
+            xs = 0.5*(xs0 + xs1)
+
+        h = ((ie0*xs/alpha)**(1/m) + ie1*t)
+
+        return h
+
+    def iterType2(self, xE, t):
         ie0 = self.ie0
         ie1 = self.ie1
-        alpha = self.alpha
-        init_h = self.init_h
+        ie2 = self.ie2
+        d = self.d
         m = self.m
-
-        xz_pos = np.zeros(grds)
-        h_on_x = np.zeros(grds)
-
-        xf = alpha*ie1**(m-1)*t1**m
-        for i in range(0, grds):
-            xz_pos[i] = (x[i] + alpha/ie1*(init_h[i] + ie1*t1)**m -
-                         alpha/ie1*init_h[i]**m)
-        for j in range(1, grds):
-            c_x = np.interp(x[j], xz_pos, x)
-            if x[j] > xf:
-                h_on_x[j] = (c_x*ie0/alpha)**(1/m) + ie1*t1
-            else:
-                h_on_x[j] = (x[j]*ie1/alpha)**(1/m)
-        self.h_on_t1 = h_on_x
-
-    def step1(self, h_on_x, t):
+        L = self.L
         alpha = self.alpha
+
+        xs0 = 0.  # initial guess
+        xs1 = L
+        xs = 0.5*(xs0 + xs1)
+
+        Err = abs(xs1 - xs0)
+        CondReached = False
+        counter = 0
+
+        while not CondReached:
+            h0 = (ie0*xs/alpha)**(1/m) + ie1*d
+            # dh0dx = 1/m*(ie0*xs0/alpha)**(1/m-1)*ie0/alpha
+            f = xE - xs - alpha/ie1*h0**m + ie0/ie1*xs - alpha/ie2*(
+                (h0 + ie2*(t-d))**m - h0**m)
+            # dfdx = -1 - alpha/ie1*m*h0**(m-1)*dh0dx - alpha/ie2*(
+            # m*(h0 + ie2*(t-d))**(m-1)*dh0dx - m*h0**(m-1)*dh0dx)
+
+            # xs1 = xs0 - f/dfdx
+
+            if f > 0:
+                xs0 = 0.5*(xs0 + xs)
+            elif f < 0:
+                xs1 = 0.5*(xs + xs1)
+            else:
+                CondReached = True
+
+            Err = abs(xs - xs1)
+            counter += 1
+
+            if Err < 1.0e-6 or counter > 100:
+                CondReached = True
+            xs = 0.5*(xs1 + xs0)
+
+        return h0 + ie2*(t-d)
+
+    def iterType3(self, xE, t):
+        ie1 = self.ie1
+        ie2 = self.ie2
+        d = self.d
+        m = self.m
+        alpha = self.alpha
+        L = self.L
+
+        xs0 = 0.
+        xs1 = L
+        xs = 0.5*(xs0 + xs1)
+        CondReached = False
+        counter = 0
+
+        while not CondReached:
+            h0 = (ie1*xs/alpha)**(1/m) + ie2*(t-d)
+            # dh0dx = 1/m*ie1/alpha*(ie1*xs0/alpha)**(1/m-1)
+
+            f = (xE - xs - alpha/ie2*(h0)**m + ie1/ie2*xs)
+            # dfdx = -1 - alpha/ie2*m*h0**(m-1)*dh0dx + ie1/ie2
+
+            # xs1 = xs0 - f/dfdx
+            Err = abs(xs - xs1)
+            counter += 1
+
+            if f > 0.:
+                xs0 = 0.5*(xs + xs0)
+            elif f < 0.:
+                xs1 = 0.5*(xs + xs1)
+            else:
+                CondReached = True
+
+            if Err < 1.0e-6 or counter > 100:
+                CondReached = True
+            xs = 0.5*(xs0 + xs1)
+
+        return (ie1*xs1/alpha)**(1/m) + ie2*(t-d)
+
+    def phase1(self, t):
         ie0 = self.ie0
         ie1 = self.ie1
         m = self.m
-        init_h = self.init_h
         x = self.x
-        grds = self.grds
-        xz_pos = np.zeros(grds)
 
-        xf = alpha*ie1**(m-1)*t**m
-        for i in range(0, grds):
-            xz_pos[i] = (x[i] + alpha/ie1*(init_h[i] + ie1*t)**m -
-                         alpha/ie1*init_h[i]**m)
-        for j in range(1, grds):
-            c_x = np.interp(x[j], xz_pos, x)
-            if x[j] > xf:
-                h_on_x[j] = (c_x*ie0/alpha)**(1/m) + ie1*t
+        alpha = self.alpha
+        xz1 = alpha/ie1*(ie1*t)**m
+        h_on_x = np.zeros(len(x))
+
+        for i in range(0, len(x)):
+            if x[i] > xz1:
+                h_on_x[i] = self.iterType1(ie0, ie1, x[i], t)
             else:
-                h_on_x[j] = (x[j]*ie1/alpha)**(1/m)
+                h_on_x[i] = (ie1*x[i]/alpha)**(1/m)
 
         return h_on_x
 
-    def step2(self, h_on_x, t):
-        grds = self.grds
-        x = self.x
+    def phase2(self, t):
+        ie1 = self.ie1
         ie2 = self.ie2
-        alpha = self.alpha
         m = self.m
-        t1 = self.t1
-        h_on_t1 = self.h_on_t1
+        x = self.x
+        d = self.d
 
-        xz2_pos = np.zeros(grds)
+        alpha = self.alpha
+        xz1 = (alpha/ie1*(ie1*d)**m + alpha/ie2*(ie1*d + ie2*(t-d))**m -
+               alpha/ie2*(ie1*d)**m)
+        xz2 = alpha/ie2*(ie2*(t - d))**m
+        h_on_x = np.zeros(len(x))
 
-        xf = alpha*ie2**(m-1)*(t - t1)**m
-        for i in range(0, grds):
-            xz2_pos[i] = (x[i] + alpha/ie2*(h_on_t1[i] + ie2*(t - t1))**m
-                          - alpha/ie2*h_on_t1[i]**m)
-        for j in range(1, grds):
-            c_x = np.interp(x[j], xz2_pos, x)
-
-            if x[j] > xf:
-                h_on_x[j] = np.interp(c_x, x, h_on_t1) + ie2*(t - t1)
+        for i in range(0, len(x)):
+            if x[i] > xz1:
+                h_on_x[i] = self.iterType2(x[i], t)
+            elif x[i] <= xz1 and x[i] > xz2:
+                h_on_x[i] = self.iterType3(x[i], t)
             else:
-                h_on_x[j] = (x[j]*ie2/alpha)**(1/m)
+                h_on_x[i] = (ie2*x[i]/alpha)**(1/m)
+
+        return h_on_x
+
+    def phase3(self, t):
+        ie2 = self.ie2
+        m = self.m
+        x = self.x
+        d = self.d
+
+        alpha = self.alpha
+        xz2 = alpha/ie2*(ie2*(t - d))**m
+        h_on_x = np.zeros(len(x))
+
+        for i in range(0, len(x)):
+            if x[i] > xz2:
+                h_on_x[i] = self.iterType3(x[i], t)
+            else:
+                h_on_x[i] = (ie2*x[i]/alpha)**(1/m)
+
+        return h_on_x
+
+    def calculation(self, t):
+        d = self.d
+        tr = self.tr
+
+        if t < d:
+            h_on_x = self.phase1(t)
+        elif t >= d and t < d + tr:
+            h_on_x = self.phase2(t)
+        else:
+            h_on_x = self.phase3(t)
 
         return h_on_x
 
     def run(self):
         alpha = self.alpha
         ie2 = self.ie2
-        t1 = self.t1
         L = self.L
         m = self.m
         grds = self.grds
         dt = self.dt
+        d = self.d  # Moment of ie2 starts
         depth_rec = list()
 
-        term_time = t1 + (L*ie2**(1-m)/alpha)**(1/m)
+        term_time = d + (L*ie2**(1-m)/alpha)**(1/m)
         t = 0.0
 
         h_on_x = np.zeros(grds)
         q = list()  # Outflow curve
         s = list()  # Storage curve
 
+        print('ie0=%5.2f' % (self.ie0*3600.0*1000.0))
+        print('ie1=%5.2f' % (self.ie1*3600.0*1000.0))
+        print('ie2=%5.2f' % (self.ie2*3600.0*1000.0))
+        print('ToC=%6.2f' % self.d)
+
         while t < term_time:
-            if t <= t1:
-                h_on_x = self.step1(h_on_x, t)
-            elif t > t1 and t < term_time:
-                h_on_x = self.step2(h_on_x, t)
+            h_on_x = self.calculation(t)
 
             q.append([t, alpha*h_on_x[-1]**m])
             s.append([t, self.simpson(h_on_x)])
@@ -358,78 +470,51 @@ class two_step_overland:
         self.ie1_to_ie2_s[:, 1] = self.ie1_to_ie2_s[:, 1]/ie2_s
         self.ie1_to_ie2_s[:, 0] = self.ie1_to_ie2_s[:, 0]/ie2_time
 
-    def xs_to_L(self):
-        ie1 = self.ie1
-        ie2 = self.ie2
-        t1 = self.t1
-        alpha = self.alpha
-        m = self.m
-        L = self.L
-
-        xs1 = alpha/ie1*(ie1*t1)**m
-
-        term_time = (L*ie2**(1-m)/alpha)**(1/m)
-
-        t = np.arange(0.0, term_time, 1.0)
-        xz_pos = np.zeros(len(t))
-
-        for i in range(0, len(t)):
-            xz_pos[i] = (xs1 + alpha/ie2*(ie1*t1 + ie2*t[i])**m
-                         - alpha/ie2*(ie1*t1)**m)
-
-        t_xs = np.interp(L, xz_pos, t)  # Time required for xs1 to reach L.
-        print t_xs
-        q1 = alpha*(ie1*t1 + ie2*(t_xs))**m
-        q2 = alpha*(ie1*t1)**m
-
-        print ('xs1 to reach L: ' + str(t_xs))
-        print ('flowrate: ' + str(alpha*(ie1*t1 + ie2*(t_xs))**m))
-        print ('flowate at t1: ' + str(alpha*(ie1*t1)**m))
-        print ('z = ' + str(q2/q1))
-
-        self.t_xs = t_xs
-        self.t_term = term_time
-
     def transition(self):
-        ie1 = self.ie1
-        ie2 = self.ie2
-        h_on_t1 = self.h_on_t1
         alpha = self.alpha
         m = self.m
-        t_xs = self.t_xs
         grds = self.grds
-        x = self.x
         dt = self.dt
+        d = self.d  # Moment of ie2 starts
+        tr = self.tr
+        depth_rec = list()
 
-        q_curve = list()
-        s_curve = list()
-        t = 0.0
+        term_time = d + tr
+        t = d
+
         h_on_x = np.zeros(grds)
-        xz_pos = np.zeros(grds)
-        while t < t_xs:
-            for j in range(1, grds):
-                xz_pos[j] = (x[j] + alpha/ie2*(h_on_t1[j] + ie2*t)**m
-                             - alpha/ie2*h_on_t1[j]**m)
+        q = list()  # Outflow curve
+        s = list()  # Storage curve
 
-            xf = alpha/ie2*(ie2*t)**m
-            for z in range(1, grds):
-                c_x = np.interp(x[z], xz_pos, x)
-                if x[z] > xf:
-                    h_on_x[z] = (c_x*ie1/alpha)**(1/m) + ie2*t
-                else:
-                    h_on_x[z] = (x[z]*ie2/alpha)**(1/m)
-            q_curve.append([t, alpha*h_on_x[-1]**m])
-            s_curve.append([t, self.simpson(h_on_x)])
+        print('ie0=%5.2f' % (self.ie0*3600.0*1000.0))
+        print('ie1=%5.2f' % (self.ie1*3600.0*1000.0))
+        print('ie2=%5.2f' % (self.ie2*3600.0*1000.0))
+        print('ToC=%6.2f' % self.d)
+
+        while t < term_time:
+            h_on_x = self.calculation(t)
+
+            q.append([t, alpha*h_on_x[-1]**m])
+            s.append([t, self.simpson(h_on_x)])
+
+            depth_rec.append([t, h_on_x.copy()])
 
             t = t + dt
 
-        q_curve = np.array(q_curve)
-        s_curve = np.array(s_curve)
+        h_on_x = self.phase2(term_time)
+        depth_rec.append([t, h_on_x.copy()])
 
-        self.transition_q = q_curve
-        self.transition_s = s_curve
+        q.append([term_time, alpha*h_on_x[-1]**m])
+        s.append([t, self.simpson(h_on_x)])
 
-        self.steady_intersection()
+        q = np.array(q)
+        s = np.array(s)
+
+        self.q_curve = q
+        self.s_curve = s
+
+        if self.plot:
+            self.plot_depth(depth_rec)
 
     def plot_transition_q(self, LT='-r'):
         plt.plot(self.transition_q[:, 0], self.transition_q[:, 1], LT)
@@ -495,11 +580,9 @@ class two_step_overland:
                 seq_t1 = i
                 min_t1_err = err
 
-        print seq, min_error
         self.q_AC = q_rec[seq_t1:seq]
         self.s_AC = s_rec[seq_t1:seq]
         self.trans_ie = np.interp(s_rec[seq, 1], steady_sq[:, 1],
                                   steady_sq[:, 0])*1000.0*3600.0
 
         gamma = q_rec[seq, 1]/np.interp(self.t1, q_rec[:, 0], q_rec[:, 1])
-        print gamma

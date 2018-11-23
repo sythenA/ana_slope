@@ -19,9 +19,6 @@ class RisingLimb:
         aa = st.RisingLimb_fit(rec_name=rec_name, save_name='fit_1',
                                folder=folder)
         aa.load()
-        """
-        file_name = folder + '/' + 'fit_1_RiseLimb.pick'
-        aa = pickle.load(open(file_name, 'r'))"""
 
         self.ref = aa
 
@@ -172,11 +169,7 @@ class FallingLimb:
 
         aa = st.FallingLimb_fit(rec_name=rec_name, save_name='fit_1',
                                 folder=folder)
-        aa.load()
-        """
-        file_name = folder + '/' + 'fit_1' '_FallLimb.pick'
-        print file_name
-        aa = pickle.load(open(file_name, 'r'))"""
+        aa.p_fit()
 
         self.ref = aa
         self.max_k = max(aa.ks)
@@ -205,14 +198,15 @@ class FallingLimb:
         nQ = self.ref.NS_to_NQ(normS, inv_k)
         return nQ
 
-    def getCurve(self, inv_k, maxQ, maxS):
-        curve = self.ref.SQCurve(inv_k)
+    def getCurve(self, inv_k, minQ, minS):
+        curve = self.ref.SQ_curve(inv_k)
         t = np.arange(0.0, 1.01, 0.01)
 
         curve[:, 1] = curve[:, 1]*(1.0 - inv_k**(3./5))/inv_k**(3./5) + 1.  # S
         curve[:, 0] = curve[:, 0]*(1.0 - inv_k)/inv_k + 1.                  # Q
-        curve[:, 1] = curve[:, 1]*maxS
-        curve[:, 0] = curve[:, 0]*maxQ
+
+        curve[:, 1] = curve[:, 1]*minS
+        curve[:, 0] = curve[:, 0]*minQ
 
         return curve, t
 
@@ -410,21 +404,11 @@ def run_Falling_gen(length, dt, n, slope, gen_dat=False):
     aa.run()
     plt.figure
     aa.plot_norm_SQ()
+    aa.eff_coeifficent()
     plt.show()
 
 
 def run_FallingLimb_fit():
-    ks1 = [1.01, 1.05, 1.1, 1.2, 1.6, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 6.0,
-           7.0, 8.0, 9.0, 10.0, 15.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0,
-           90.0, 100.0]
-
     ab = st.FallingLimb_fit('ks1', 'fit_1')
     ab.run()
     ab.SaveResult()
-    """
-    val1 = ab.SQ_curve(0.32)
-    val2 = ab.SQ_curve(0.015)
-    plt.figure
-    plt.plot(val1[:, 1], val1[:, 0], '-b')
-    plt.plot(val2[:, 1], val2[:, 0], '-r')
-    plt.show()"""

@@ -65,7 +65,7 @@ class trans_ana:
 
         self.method = 'simpson'
         if (x_space-1) % 2 != 0:
-            print 'Number total column-1 is not even, using trapezoid method.'
+            print('Number total column-1 is not even, using trapezoid method.')
             self.method = 'trapezoid'
         if 'method' in kwargs:
             method = kwargs['method']
@@ -139,7 +139,7 @@ class trans_ana:
             elif f1f2_2 > 0:
                 return [n_rh, rh]
         elif f1f2 > 0:
-            print 'Error, no solution available.'
+            print('Error, no solution available.')
             time.sleep(10)
             raise(ValueError)
 
@@ -182,10 +182,10 @@ class trans_ana:
             self.counter = counter
 
             if self.counter > 500:
-                print rh, ih
+                print(rh, ih)
 
             if self.counter > 1000:
-                print rh, ih
+                print(rh, ih)
                 time.sleep(300)
 
         return rh
@@ -229,7 +229,6 @@ class trans_ana:
             else:
                 rh = self.bisec_iter(xa, t, 10**-8)
                 return rh
-            # print rh
 
         return rh
 
@@ -313,7 +312,7 @@ class trans_ana:
 
             xf = alpha/ie1*(ie1*t)**m
             if float(floor(t)) == t:
-                print t, xf
+                print(t, xf)
 
             for i in range(1, len(h_on_x)-1):
                 if x_grd[i] > xf:
@@ -455,7 +454,7 @@ class trans_ana:
             t = t + dt
 
             xf = alpha/ie1*(ie1*t)**m
-            print t, xf
+            print(t, xf)
 
             h_on_x = self.simple_iter(h_on_x, t)
 
@@ -685,7 +684,7 @@ class unsteady_trans:
             elif f1f2_2 > 0:
                 return [n_rh, rh]
         elif f1f2 > 0:
-            print 'Error, no solution available.'
+            print('Error, no solution available.')
             time.sleep(10)
             raise ValueError
 
@@ -741,10 +740,10 @@ class unsteady_trans:
             self.counter = counter
 
             if self.counter > 500:
-                print rh, ih
+                print(rh, ih)
 
             if self.counter > 1000:
-                print rh, ih
+                print(rh, ih)
                 time.sleep(300)
 
         return rh
@@ -859,7 +858,7 @@ class unsteady_trans:
             diff = np.zeros(len(x_grd))
             balance2 = (ie1*x_grd/alpha)**(1/m)
             xf = alpha/ie1*(ie1*t)**m
-            print t, xf
+            print(t, xf)
             for i in range(1, len(h_on_x)-1):
                 h_on_x[i] = self.h_on_x(x_grd[i], xf, x_sta, t)
 
@@ -1217,7 +1216,7 @@ class Recession:
             out_s.append([t, S])
             depth_rec.append([t, copy.copy(h_on_x)])
             if str(t)[-1] == '0':
-                print q, t, q/q0
+                print(q, t, q/q0)
 
         self.out_q = np.array(out_q)
         self.out_s = np.array(out_s)
@@ -1301,7 +1300,7 @@ class Recession:
             elif f1f2_2 > 0:
                 return [n_rx, rx]
         elif f1f2 > 0:
-            print 'Error, no solution available.'
+            print('Error, no solution available.')
             time.sleep(10)
             raise(ValueError)
 
@@ -1322,10 +1321,10 @@ class Recession:
             self.counter = counter
 
             if self.counter > 500:
-                print rx, ix
+                print(rx, ix)
 
             if self.counter > 1000:
-                print rx, ix
+                print(rx, ix)
                 time.sleep(300)
 
         return rx

@@ -3,19 +3,24 @@ import two_step
 import ana_new
 import numpy as np
 import pickle
+from steady_fit import fit_steady
+from scipy.interpolate import interp1d, interp2d, Rbf
 import matplotlib.pyplot as plt
+from operator import itemgetter
 import bezeir_fit
-from random import randint
+from random import randint, uniform
 from math import sqrt
 
-std_SQ = pickle.load(open('Steady_fit/SQ_Steady.pick', 'r'))
-SQ = np.zeros([len(std_SQ['steady_s']), 2])
-SQ[:, 0] = std_SQ['steady_s']
-SQ[:, 1] = std_SQ['steady_q']
+with open('Steady_fit/SQ_Steady.pick', 'r') as f:
+    std_SQ = pickle.load(f)
+
+SQ = np.zeros([len(std_SQ[b'steady_s']), 2])
+SQ[:, 0] = std_SQ[b'steady_s']
+SQ[:, 1] = std_SQ[b'steady_q']
 
 
 def farPoint(st_curve, qt_curve):
-    SQ = np.zeros([len(std_SQ['steady_s']), 2])
+    SQ = np.zeros([len(std_SQ[b'steady_s']), 2])
     SQ[:, 0] = std_SQ['steady_s']
     SQ[:, 1] = std_SQ['steady_q']
 
@@ -32,6 +37,11 @@ def farPoint(st_curve, qt_curve):
     print('Outflow:', qt_curve[Max_index-1, 0], qt_curve[Max_index-1, 1])
     print(np.interp(st_curve[Max_index, 1], std_SQ['steady_s'],
                     std_SQ['ie'])*1000.0*3600)
+
+
+def randColor():
+    color = (uniform(0., 1.0), uniform(0., 1.0), uniform(0., 1.0))
+    return color
 
 
 def run_farPoint(L, dt, n, S, x_grds, ie0, ie1):
@@ -52,88 +62,89 @@ def steadyPoint(st_curve, qt_curve, B_idx, D_idx):
     return Min_index
 
 
-def clipSecondCurve(ab, bc):
-    b_idx, c_idx, d_idx = bcdPoints(ab, bc)
-
-    print(b_idx, c_idx, d_idx)
-    SC = np.zeros([d_idx-b_idx, 3])
-    SC[:, 0] = ab.q_curve[b_idx:d_idx, 0]
-    SC[:, 1] = ab.q_curve[b_idx:d_idx, 1]
-    SC[:, 2] = ab.s_curve[b_idx:d_idx, 1]
-
-    return SC
-
-
-def SWRFit(c0, c1, c2, ToC, L, x_space, dt, n, slope, deg):
-    a_curves = list()
-    b_curves = list()
-    SWR_curves = list()
-    SWR_fit = list()
-    for i in range(0, len(c2)):
-        ca = two_step.two_step_overland(c0, c1, c2[i], 100.0, 201, 0.5, 0.1,
-                                        0.01)
-        ca.ie1_duration(ToC)
-        cb = ana_new.trans_ana(c1, c2[i], 100.0, 201, 0.5, 0.1, 0.01)
-        ca.run()
-        cb.run()
-        SWR = clipSecondCurve(ca, cb)
-
-        a_curves.append(ca)
-        b_curves.append(cb)
-        SWR_curves.append(SWR)
+def SWRFit(i0, i1, i2, L, x_space, dt, n, slope, deg):
+    c1 = list()
+    qBDRatio = list()
+    sBDRatio = list()
+    ptList = list()
 
     plt.figure
-    for j in range(0, len(c2)):
-        plt.plot(a_curves[j].q_curve[:, 1], a_curves[j].s_curve[:, 1],
-                 color='forestgreen', lw=1.0, ls='-')
-        plt.plot(b_curves[j].out_q[:, 1], b_curves[j].out_s[:, 1],
-                 color='chocolate', lw=1.0, ls='-')
-        plt.plot(SWR_curves[j][:, 1], SWR_curves[j][:, 2],
-                 label='{:4.3f}'.format(SWR_curves[j][-1, 1]))
-    plt.legend(loc=1)
-    plt.xlabel('Storage ($m^2$)')
-    plt.ylabel('Outflow ($m^2/s$)')
-    plt.savefig('multipleSWR.png')
-    plt.close()
-
-    #                                      #
-    #  Fit Second Wetting Curve From Above #
-    #                                      #
-    SWR_org = list()
-    SWR_fit = list()
-
-    header = list()
-    ptList = list()
-    for j in range(0, len(c2)):
-        SWR = SWR_curves[j]
-
-        # Normallization by QS(0, 0)
-        SWR[:, 0] = (SWR[:, 0] - SWR[0, 0])/(SWR[-1, 0] - SWR[0, 0])
-        SWR[:, 1] = SWR[:, 1]/SWR[0, 1]
-        SWR[:, 2] = SWR[:, 2]/SWR[0, 2]
-
-        t = np.arange(0, 1.01, 1./20)
-
-        _SWR = np.zeros([21, 2])
-        _SWR[:, 0] = np.interp(t, SWR[:, 0], SWR[:, 1])
-        _SWR[:, 1] = np.interp(t, SWR[:, 0], SWR[:, 2])
-        [p, z] = bezeir_fit.fit(_SWR, 2, 1.0E-8)
-        p[0] = [1.0, 1.0]
-        p[-1] = [SWR[-1, 1], SWR[-1, 2]]
-        n_SWR = bezeir_fit.gen(t, 2, p)
-
-        SWR_fit.append(n_SWR)
-        SWR_org.append(_SWR)
-        header.append(n_SWR[-1, 0]/n_SWR[0, 0])
-        ptList.append([p, z])
-
     plt.figure(figsize=(10, 8))
     ax = plt.subplot(111)
-    for k in range(0, len(c2)):
-        ax.plot(SWR_fit[k][:, 0], SWR_fit[k][:, 1], lw=2.0, ls='-',
-                label='{:4.3f}'.format(SWR_fit[k][-1, 0]))
-        ax.plot(SWR_org[k][:, 0], SWR_org[k][:, 1], lw=1.0, ls='--',
-                label='{:4.3f}'.format(SWR_org[k][-1, 0]))
+    dat_And_Indicator = list()
+    # Index 0: qB/qD
+    # Index 1: sB/sD
+    # Index 2: C1
+    # Index 3: [p, t]  Secondary Curve Fit
+    for i in range(0, len(i1)):
+        ie1 = i1[i]
+        N = 5./3  # Manning Eq
+        alpha = 1./n*sqrt(slope)  # Manning n
+        steady_time = ((ie1/3600./1000.)**(1-N)*L/alpha)**(1/N)
+        ToC = [steady_time*0., steady_time*0.001, steady_time*0.01,
+               steady_time*0.05, steady_time*0.1, steady_time*0.3,
+               steady_time*0.5, steady_time*0.55, steady_time*0.6,
+               steady_time*0.65, steady_time*0.7, steady_time*0.75,
+               steady_time*0.8, steady_time*0.9, steady_time*0.97,
+               steady_time*0.99]
+        for j in range(0, len(i2[i])):
+            ie2 = i2[i][j]
+            q2 = ie2/3600./1000.*L
+            s2 = 1./(N+1)*alpha/(ie2/3600./1000.)*(
+                (ie2/3600./1000.)*L/alpha)**((N+1)/N)
+            for k in range(0, len(ToC)):
+                d = ToC[k]
+                ca = two_step.two_step_overland(i0, ie1, ie2, L, x_space, dt,
+                                                n, slope)
+                ca.ie1_duration(d)
+                ca.run()
+
+                SWR = bcdPoints(ca)  # Clip Secondary Curve
+                SWR = np.array(SWR)
+                qBD = SWR[-1, 1]/SWR[0, 1]
+                sBD = SWR[-1, 2]/SWR[0, 2]
+
+                #                                      #
+                #  Fit Second Drying Curve From Above  #
+                #                                      #
+                SWR[:, 0] = (SWR[:, 0] - SWR[0, 0])/(SWR[-1, 0] - SWR[0, 0])
+                SWR[:, 1] = SWR[:, 1]/SWR[0, 1]
+                SWR[:, 2] = SWR[:, 2]/SWR[0, 2]
+
+                t = np.arange(0, 1.01, 1./20)
+
+                _SWR = np.zeros([21, 2])
+                _SWR[:, 0] = np.interp(t, SWR[:, 0], SWR[:, 1])
+                _SWR[:, 1] = np.interp(t, SWR[:, 0], SWR[:, 2])
+
+                # Fitting
+                [p, z] = bezeir_fit.fit(_SWR, deg, 1.0E-8)
+                p[0] = [1.0, 1.0]
+                p[-1] = [SWR[-1, 1], SWR[-1, 2]]
+                n_SWR = bezeir_fit.gen(t, deg, p)
+
+                dat_And_Indicator.append([qBD,
+                                          sBD,
+                                          ie1/ie2,
+                                          [p, z]])
+
+                color = randColor()
+                labelString = ('$q_B/q_D$=' +
+                               '{:4.3f}'.format(qBD) + ', ' +
+                               '$c_1$=' +
+                               '{:4.3f}'.format(ie1/ie2))
+                print(labelString)
+
+                ax.plot(SWR[:, 1], SWR[:, 2], lw=2.0, ls='-',
+                        label=labelString, color=color)
+                ax.plot(n_SWR[:, 0], n_SWR[:, 1], lw=1.0, ls='--', color=color)
+
+    # dat_And_Indicator = sorted(dat_And_Indicator, key=itemgetter(2))
+    for i in range(0, len(dat_And_Indicator)):
+        qBDRatio.append(dat_And_Indicator[i][0])
+        sBDRatio.append(dat_And_Indicator[i][1])
+        c1.append(dat_And_Indicator[i][2])
+        ptList.append(dat_And_Indicator[i][3])
 
     box = ax.get_position()
     ax.set_position([box.x0, box.y0, box.width * 0.8, box.height])
@@ -144,82 +155,103 @@ def SWRFit(c0, c1, c2, ToC, L, x_space, dt, n, slope, deg):
     plt.savefig('SWR_fitting.png')
     plt.close()
 
-    f = open('ks1_SWRrec.pick', 'w')
-    pickle.dump({'header': header, 'PT': ptList}, f)
+    f = open('ks1_SWRrec.pick', 'wb')
+    pickle.dump({'qBD': qBDRatio, 'sBD': sBDRatio, 'PT': ptList, 'C1': c1}, f)
+    f.close()
 
-    return header, ptList
 
-
-def SDRFit(c0, c1, c2, ToC, L, x_space, dt, n, slope, deg):
-    a_curves = list()
-    b_curves = list()
-    SDR_curves = list()
-    SDR_fit = list()
-    for i in range(0, len(c2)):
-        ca = two_step.two_step_overland(c0, c1, c2[i], L, x_space, dt, n,
-                                        slope)
-        ca.ie1_duration(ToC)
-        cb = ana_new.trans_ana(c1, c2[i], L, x_space, dt, n, slope)
-        ca.run()
-        cb.run()
-        SDR = clipSecondCurve(ca, cb)
-
-        a_curves.append(ca)
-        b_curves.append(cb)
-        SDR_curves.append(SDR)
+def SDRFit(i0, i1, i2, L, x_space, dt, n, slope, deg):
+    endSlope = list()
+    qBi1Ratio = list()
+    SBi1Ratio = list()
+    qDi1Ratio = list()
+    SDi1Ratio = list()
+    ptList = list()
 
     plt.figure
-    for j in range(0, len(c2)):
-        plt.plot(a_curves[j].q_curve[:, 1], a_curves[j].s_curve[:, 1],
-                 color='forestgreen', lw=1.0, ls='-')
-        plt.plot(b_curves[j].out_q[:, 1], b_curves[j].out_s[:, 1],
-                 color='chocolate', lw=1.0, ls='-')
-        plt.plot(SDR_curves[j][:, 1], SDR_curves[j][:, 2],
-                 label='{:4.3f}'.format(SDR_curves[j][-1, 1]))
-    plt.legend(loc=1)
-    plt.xlabel('Storage ($m^2$)')
-    plt.ylabel('Outflow ($m^2/s$)')
-    plt.savefig('multipleSDR.png')
-    plt.close()
-
-    #                                      #
-    #  Fit Second Wetting Curve From Above #
-    #                                      #
-    SDR_org = list()
-    SDR_fit = list()
-
-    header = list()
-    ptList = list()
-    for j in range(0, len(c2)):
-        SDR = SDR_curves[j]
-
-        # Normallization by QS(0, 0)
-        SDR[:, 0] = (SDR[:, 0] - SDR[0, 0])/(SDR[-1, 0] - SDR[0, 0])
-        SDR[:, 1] = SDR[:, 1]/SDR[0, 1]
-        SDR[:, 2] = SDR[:, 2]/SDR[0, 2]
-
-        t = np.arange(0, 1.01, 1./20)
-
-        _SDR = np.zeros([21, 2])
-        _SDR[:, 0] = np.interp(t, SDR[:, 0], SDR[:, 1])
-        _SDR[:, 1] = np.interp(t, SDR[:, 0], SDR[:, 2])
-        [p, z] = bezeir_fit.fit(_SDR, deg, 1.0E-8)
-        p[0] = [1.0, 1.0]
-        p[-1] = [SDR[-1, 1]/SDR[0, 1], SDR[-1, 2]/SDR[0, 2]]
-        n_SDR = bezeir_fit.gen(t, deg, p)
-
-        SDR_fit.append(n_SDR)
-        SDR_org.append(_SDR)
-        header.append(n_SDR[-1, 0]/n_SDR[0, 0])
-        ptList.append([p, z])
-
     plt.figure(figsize=(10, 8))
     ax = plt.subplot(111)
-    for k in range(0, len(c2)):
-        ax.plot(SDR_fit[k][:, 0], SDR_fit[k][:, 1], lw=2.0, ls='-',
-                label='{:4.3f}'.format(SDR_fit[k][-1, 0]))
-        ax.plot(SDR_org[k][:, 0], SDR_org[k][:, 1], lw=1.0, ls='--',
-                label='{:4.3f}'.format(SDR_org[k][-1, 0]))
+    dat_And_Indicator = list()
+    # Index 0: qB/qD
+    # Index 1: sB/sD
+    # Index 2: EndSlope
+    # Index 3: [p, t]  Secondary Curve Fit
+    for i in range(0, len(i1)):
+        ie1 = i1[i]
+        N = 5./3  # Manning Eq
+        alpha = 1./n*sqrt(slope)  # Manning n
+        steady_time = ((ie1/3600./1000.)**(1-N)*L/alpha)**(1/N)
+        ToC = [steady_time*0., steady_time*0.001, steady_time*0.01,
+               steady_time*0.05, steady_time*0.1, steady_time*0.3,
+               steady_time*0.5, steady_time*0.55, steady_time*0.6,
+               steady_time*0.65, steady_time*0.7, steady_time*0.75,
+               steady_time*0.8, steady_time*0.9, steady_time*0.97,
+               steady_time*0.99]
+        q1 = ie1/3600./1000.*L
+        s1 = N/(N+1)*alpha/(ie1/3600./1000.)*(
+            (ie1/3600./1000.)*L/alpha)**((N+1)/N)
+        for j in range(0, len(i2[i])):
+            ie2 = i2[i][j]
+            for k in range(0, len(ToC)):
+                d = ToC[k]
+                ca = two_step.two_step_overland(i0, ie1, ie2, L, x_space, dt,
+                                                n, slope)
+                ca.ie1_duration(d)
+                ca.run()
+
+                SDR, _endSlope = bcdPoints(ca)  # Clip Secondary Curve
+                SDR = np.array(SDR)
+                qBi1 = SDR[0, 1]/q1
+                SBi1 = SDR[0, 2]/s1
+                qDi1 = SDR[-1, 1]/q1
+                SDi1 = SDR[-1, 2]/s1
+                qBD = SDR[0, 1]/SDR[-1, 1]
+
+                #                                      #
+                #  Fit Second Drying Curve From Above  #
+                #                                      #
+                SDR[:, 0] = (SDR[:, 0] - SDR[0, 0])/(SDR[-1, 0] - SDR[0, 0])
+                SDR[:, 1] = SDR[:, 1]/SDR[0, 1]
+                SDR[:, 2] = SDR[:, 2]/SDR[0, 2]
+
+                t = np.arange(0, 1.01, 1./20)
+
+                _SDR = np.zeros([21, 2])
+                _SDR[:, 0] = np.interp(t, SDR[:, 0], SDR[:, 1])
+                _SDR[:, 1] = np.interp(t, SDR[:, 0], SDR[:, 2])
+
+                # Fitting
+                [p, z] = bezeir_fit.fit(_SDR, deg, 1.0E-8)
+                p[0] = [1.0, 1.0]
+                p[-1] = [SDR[-1, 1], SDR[-1, 2]]
+                n_SDR = bezeir_fit.gen(t, deg, p)
+
+                dat_And_Indicator.append([qBi1,
+                                          SBi1,
+                                          qDi1,
+                                          SDi1,
+                                          _endSlope,
+                                          [p, z]])
+
+                color = randColor()
+                labelString = ('$q_B/q_D$=' +
+                               '{:4.3f}'.format(qBD) + ', ' +
+                               '$c_1$=' +
+                               '{:4.3f}'.format(ie1/ie2))
+                print(labelString)
+
+                ax.plot(SDR[:, 1], SDR[:, 2], lw=2.0, ls='-',
+                        label=labelString, color=color)
+                ax.plot(n_SDR[:, 0], n_SDR[:, 1], lw=1.0, ls='--', color=color)
+
+    # dat_And_Indicator = sorted(dat_And_Indicator, key=itemgetter(2))
+    for i in range(0, len(dat_And_Indicator)):
+        qBi1Ratio.append(dat_And_Indicator[i][0])
+        SBi1Ratio.append(dat_And_Indicator[i][1])
+        qDi1Ratio.append(dat_And_Indicator[i][2])
+        SDi1Ratio.append(dat_And_Indicator[i][3])
+        endSlope.append(dat_And_Indicator[i][4])
+        ptList.append(dat_And_Indicator[i][5])
 
     box = ax.get_position()
     ax.set_position([box.x0, box.y0, box.width * 0.8, box.height])
@@ -230,35 +262,62 @@ def SDRFit(c0, c1, c2, ToC, L, x_space, dt, n, slope, deg):
     plt.savefig('SDR_fitting.png')
     plt.close()
 
-    f = open('ks1_SDRrec.pick', 'w')
-    pickle.dump({'header': header, 'PT': ptList}, f)
+    f = open('ks1_SDRrec.pick', 'wb')
+    pickle.dump({'qBi1': qBi1Ratio, 'SBi1': SBi1Ratio, 'qDi1': qDi1Ratio,
+                 'SDi1': SDi1Ratio, 'PT': ptList, 'endSlope': endSlope}, f)
+    f.close()
 
-    return header, ptList
 
-
-def bcdPoints(ab, ac):
+def bcdPoints(ab):
     #  ab: Two-step transition overland flow object
     #  ac: Two rainfall transition overland flow object
-    point_B_idx = np.where(ab.s_curve[:, 0] == ab.t1)[0][0]
+    def getBIdx(ab, d):
+        minIdx = 0
+        minErr = 1000
+        for j in range(0, len(ab.q_curve)):
+            err = abs(ab.q_curve[j, 0] - d)
+            if err < minErr:
+                minIdx = j
+                minErr = err
 
-    point_D_idx = 10
-    for i in range(point_B_idx, len(ab.q_curve)):
-        if ab.ie1 > ab.ie2:
-            q_1 = np.interp(ab.s_curve[i, 1],
-                            np.fliplr([ac.out_s[:, 1]])[0],
-                            np.fliplr([ac.out_q[:, 1]])[0])
-        else:
-            q_1 = np.interp(ab.s_curve[i, 1],
-                            ac.out_s[:, 1],
-                            ac.out_q[:, 1])
-        if abs(q_1 - ab.q_curve[i, 1]) <= 1.0e-6:
-            point_D_idx = i
-            break
+        return minIdx
 
-    point_C_idx = steadyPoint(ab.s_curve, ab.q_curve, point_B_idx, point_D_idx)
-    #  Index of the point on steady-state SQ
+    i1 = ab.ie1
+    i2 = ab.ie2
 
-    return point_B_idx, point_C_idx, point_D_idx
+    d = ab.d
+    m = 5./3
+    alpha = ab.alpha
+    L = ab.L
+    c1 = i1/i2
+
+    tr = (i2**(1-m)/alpha*(L+(i1*d)**m*(alpha/i2 - alpha/i1)))**(1/m)-c1*d
+
+    y = i1*d + i2*tr
+    qD = alpha*y**m
+    sD = np.interp(d+tr, ab.s_curve[:, 0], ab.s_curve[:, 1])
+
+    qB = np.interp(d, ab.q_curve[:, 0], ab.q_curve[:, 1])
+    sB = np.interp(d, ab.s_curve[:, 0], ab.s_curve[:, 1])
+
+    qDp1 = np.interp(d+tr+0.5, ab.q_curve[:, 0], ab.q_curve[:, 1])
+    sDp1 = np.interp(d+tr+0.5, ab.s_curve[:, 0], ab.s_curve[:, 1])
+    endSlope = (sDp1 - sD)/(qDp1 - qD)
+
+    B_idx = getBIdx(ab, d)
+    D_idx = getBIdx(ab, d+tr)
+
+    t_clip = ab.q_curve[B_idx:D_idx+1, 0]
+    s_curve = ab.s_curve[B_idx:D_idx+1, 1]
+    q_curve = ab.q_curve[B_idx:D_idx+1, 1]
+    s_curve[0] = sB
+    s_curve[-1] = sD
+    q_curve[0] = qB
+    q_curve[-1] = qD
+
+    sq_curve = [zip(t_clip, q_curve, s_curve)][0]
+
+    return list(sq_curve), endSlope
 
 
 def Normalize(q_clip, s_clip):
@@ -351,57 +410,166 @@ class SDRCurves:
         else:
             self.runSDRFit()
 
+    def plotFit(self):
+        PPlist = self.PPlist
+        qBDRatio = self.qBDRatio
+        sBDRatio = self.sBDRatio
+        PTs = self.PTs
+        C1 = self.C1
+
+        for j in range(0, len(PPlist)):
+            p = list()
+            org_P = list()
+            fx = PPlist[j][0]
+            fy = PPlist[j][1]
+            for i in range(0, len(qBDRatio)):
+                qBD = qBDRatio[i]
+                sBD = sBDRatio[i]
+                val_C1 = C1[i]
+
+                p.append([fx(qBD, val_C1), fy(qBD, sBD)])
+                org_P.append(PTs[i][0][j+1])
+            p = np.array(p)
+            org_P = np.array(org_P)
+
+            plt.figure
+            plt.plot(p[:, 0], p[:, 1], 'r+')
+            plt.plot(org_P[:, 0], org_P[:, 1], 'bo', markerfacecolor='None')
+            plt.savefig('point_'+str(j)+'.png', dpi=150)
+            plt.close()
+
     def runSDRFit(self):
-        ie0 = 5.0
-        ie1 = 300.0
-        ie2 = [280.0, 260.0, 240.0, 220.0, 200.0, 180.0, 160.0, 140.0, 120.0,
-               100.0, 80, 60, 40, 20.0]
-        TimeOfChange = 400.0
-        header, PTs = SDRFit(ie0, ie1, ie2, TimeOfChange, self.L, self.x_space,
-                             self.dt, self.n, self.slope, self.degC)
-        self.header = header
-        self.PTs = PTs
+        ie0 = 10.0
+        ie1 = [15., 20., 50., 100.0, 200.0, 300.0]
+        ie2 = [[10., 5.],
+               [12., 10., 5., 3.],
+               [45., 40., 35., 30., 25., 20., 15., 10., 5.],
+               [80, 60.0, 40., 20., 10., 5.],
+               [180., 160., 140., 120., 100., 80., 60., 40., 20., 10., 5.],
+               [280, 260, 240, 220, 200, 180, 160, 140.0, 120.0, 100.0, 80, 60,
+               40, 20., 10., 5.]]
+        SDRFit(ie0, ie1, ie2, self.L, self.x_space, self.dt,
+               self.n, self.slope, self.degC)
+
+        dat = pickle.load(open('ks1_SDRrec.pick', 'rb'))
+        self.qBi1Ratio = dat['qBi1']
+        self.SBi1Ratio = dat['SBi1']
+        self.qBi1Ratio = dat['qDi1']
+        self.DBi1Ratio = dat['SDi1']
+        self.endSlope = dat['endSlope']
+        self.PTs = dat['PT']
 
     def readRec(self, recFile):
-        a = pickle.load(open(recFile, 'r'))
-        self.header = a['header']
-        self.PTs = a['PT']
+        a = pickle.load(open(recFile, 'rb'))
+        self.qBi1Ratio = a[b'qBi1']
+        self.SBi1Ratio = a[b'SBi1']
+        self.qDi1Ratio = a[b'qDi1']
+        self.SDi1Ratio = a[b'SDi1']
+        self.endSlope = a[b'endSlope']
+        self.PTs = a[b'PT']
 
     def fitPT(self):
         PTs = self.PTs
 
         degC = len(PTs[0][0])-1
-        self.degC = degC
         pointsContainer = list()
         for i in range(0, degC):
-            pointsList = list()
+            pointsList_X = list()
+            pointsList_Y = list()
             for j in range(0, len(PTs)):
-                pointsList.append(PTs[j][0][i+1])
-            pointsContainer.append(pointsList)
+                pointsList_X.append(PTs[j][0][i+1][0])
+                pointsList_Y.append(PTs[j][0][i+1][1])
+            pointsContainer.append([pointsList_X, pointsList_Y])
 
-        Tlist = list()
         # Container of points for generating interpolated curve
         PPList = list()
         for i in range(0, degC):
-            p, t = bezeir_fit.fit(np.array(pointsContainer[i]), self.degP,
-                                  1.0E-8)
-            PPList.append(p)
-            Tlist.append(t)
+            X_list = pointsContainer[i][0]
+            Y_list = pointsContainer[i][1]
+            # Two-dimensional interpolation function
+            fX = interp2d(self.qBDRatio, self.sBDRatio, X_list, kind='cubic')
+            fY = interp2d(self.qBDRatio, self.sBDRatio, Y_list, kind='cubic')
+
+            PPList.append([fX, fY])
 
         self.PPlist = PPList
-        self.Tlist = Tlist
 
-    def interpCurve(self, gamma):
-        header = self.header
-        PPlist = self.PPlist
-        Tlist = self.Tlist
+    def nearestNeighbor(self, p):
+        distance = np.zeros(len(self.qBi1Ratio))
+        idx = np.arange(0, len(self.qBi1Ratio))
+        Pts = zip(self.qBi1Ratio, self.SBi1Ratio, self.qDi1Ratio,
+                  self.SDi1Ratio, distance, idx)
+        Pts = np.array(Pts)
 
-        curvePoints = [[1, 1]]
-        for i in range(0, len(PPlist)):
-            t = np.interp([gamma], np.fliplr([header])[0],
-                          np.fliplr([Tlist[i]])[0])[0]
-            p = bezeir_fit.gen([t], self.degP, PPlist[i])[0]
-            curvePoints.append(p)
+        for i in range(0, len(Pts)):
+            dist = sqrt((p[0] - Pts[i][0])**2 + (p[1] - Pts[i][1])**2 +
+                        (p[2] - Pts[i][2])**2 + (p[3] - Pts[i][3])**2)
+            Pts[i][4] = dist
+
+        midPoint = list()
+        Pts = sorted(Pts, key=itemgetter(4))
+        for j in range(0, 10):
+            idx = Pts[j][5]
+            midPoint.append([self.PTs[int(idx)][0][1][0],
+                             self.PTs[int(idx)][0][1][1]])
+
+        return Pts[0:10], midPoint
+
+    def buildInterp(self):
+        Px = list()
+        Py = list()
+        for i in range(0, len(self.PTs)):
+            Px.append(self.PTs[i][0][1][0])
+            Py.append(self.PTs[i][0][1][1])
+        Px = np.array(Px)
+        Py = np.array(Py)
+
+        iX = Rbf(self.qBi1Ratio, self.SBi1Ratio, self.qDi1Ratio,
+                 self.SDi1Ratio, Px)
+        iY = Rbf(self.qBi1Ratio, self.SBi1Ratio, self.qDi1Ratio,
+                 self.SDi1Ratio, Py)
+
+        self.iX = iX
+        self.iY = iY
+
+    def inverseDist(self, p, Pts, midPoints):
+        distList = list()
+        for i in range(0, len(Pts)):
+            dist = sqrt((p[0]-Pts[i][0])**2 + (p[1]-Pts[i][1])**2 +
+                        (p[2]-Pts[i][2])**2 + (p[3]-Pts[i][3])**2)
+            distList.append(dist)
+
+        distList = np.array(distList)
+        weights = 1./distList*0.5
+        weights /= weights.sum(axis=0)
+
+        rX = sum(weights*midPoints[:, 0])
+        rY = sum(weights*midPoints[:, 1])
+
+        return [rX, rY]
+
+    def interpCurve(self, p):
+        Pts, midPoint = self.nearestNeighbor(p)
+        Pts = np.array(Pts)
+
+        midPoint = np.array(midPoint)
+        """
+        xrbf = Rbf(Pts[:, 0], Pts[:, 1], Pts[:, 2], Pts[:, 3], midPoint[:, 0])
+        yrbf = Rbf(Pts[:, 0], Pts[:, 1], Pts[:, 2], Pts[:, 3], midPoint[:, 1])
+
+        P1X = xrbf(p[0], p[1], p[2], p[3])*p[0]
+        P1Y = yrbf(p[0], p[1], p[2], p[3])*p[1]"""
+
+        P1X, P1Y = self.inverseDist(p, Pts, midPoint)
+
+        P1X = P1X*p[0]
+        P1Y = P1Y*p[1]
+
+        print(midPoint)
+        print(P1X, P1Y)
+
+        curvePoints = [[p[0], p[1]], [P1X, P1Y], [p[2], p[3]]]
+
         T = np.arange(0., 1.0001, 1./100)
         curve = bezeir_fit.gen(T, self.degC, np.array(curvePoints))
         return curve, T
@@ -429,294 +597,67 @@ class SWRCurves:
 
     def runSWRFit(self):
         ie0 = 100.0
-        ie1 = 5.0
-        ie2 = [5.5, 10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0, 90.0,
-               100.0, 110.0, 130.0, 150.0, 170.0, 200.0]
-        TimeOfChange = 405.0
-        header, PTs = SWRFit(ie0, ie1, ie2, TimeOfChange, self.L, self.x_space,
-                             self.dt, self.n, self.slope, self.degC)
-        self.header = header
-        self.PTs = PTs
-
-    def doubleHeader(self):
-        header = self.header
-        Sheader = list()
-        for qhead in header:
-            swc, t = self.interpCurve(qhead)
-            Sheader.append(swc[-1, 1])
-        self.Sheader = Sheader
+        ie1 = [5.0, 20.0, 40.0, 60.0, 80.0]
+        ie2 = [[6.0, 10.0, 30.0, 50.0, 70.0, 90.0, 100.0, 120.0, 140.0, 160.0,
+                180.0, 200.0],
+               [22.0, 30.0, 50.0, 70.0, 90.0, 110.0, 130.0, 150.0, 170.0,
+                190.0, 210.0],
+               [45.0, 60.0, 80.0, 100.0, 120.0, 140.0, 150.0, 170.0, 190.0,
+                210.0],
+               [65.0, 80.0, 100.0, 120.0, 140.0, 160.0, 180.0, 200.0],
+               [85.0, 100.0, 120.0, 140.0, 160.0, 180.0, 200.0]]
+        SWRFit(ie0, ie1, ie2, self.L, self.x_space, self.dt, self.n,
+               self.slope, self.degC)
 
     def readRec(self, recFile):
-        a = pickle.load(open(recFile, 'r'))
-        self.header = a['header']
-        self.PTs = a['PT']
+        a = pickle.load(open(recFile, 'rb'))
+        self.qBDRatio = a[b'qBD']
+        self.sBDRatio = a[b'sBD']
+        self.C1 = a[b'C1']
+        self.PTs = a[b'PT']
 
     def fitPT(self):
         PTs = self.PTs
 
         degC = len(PTs[0][0])-1
-        self.degC = degC
         pointsContainer = list()
         for i in range(0, degC):
-            pointsList = list()
+            pointsList_X = list()
+            pointsList_Y = list()
             for j in range(0, len(PTs)):
-                pointsList.append(PTs[j][0][i+1])
-            pointsContainer.append(pointsList)
-
-        Tlist = list()
+                pointsList_X.append(PTs[j][0][i+1][0])
+                pointsList_Y.append(PTs[j][0][i+1][1])
+            pointsContainer.append([pointsList_X, pointsList_Y])
 
         # Container of points for generating interpolated curve
         PPList = list()
         for i in range(0, degC):
-            p, t = bezeir_fit.fit(np.array(pointsContainer[i]), self.degP,
-                                  1.0E-8)
-            PPList.append(p)
-            Tlist.append(t)
+            X_list = pointsContainer[i][0]
+            Y_list = pointsContainer[i][1]
+            # Two-dimensional interpolation function
+            fX = interp2d(self.qBDRatio, self.sBDRatio, X_list, kind='cubic')
+            fY = interp2d(self.qBDRatio, self.sBDRatio, Y_list, kind='cubic')
+
+            PPList.append([fX, fY])
 
         self.PPlist = PPList
-        self.Tlist = Tlist
-        self.doubleHeader()
 
-    def interpCurve(self, gamma):
-        header = self.header
+    def interpCurve(self, qBD, sBD):
         PPlist = self.PPlist
-        Tlist = self.Tlist
 
         curvePoints = [[1, 1]]
         for i in range(0, len(PPlist)):
-            t = np.interp(gamma, header, Tlist[i])
-            p = bezeir_fit.gen(t, self.degP, PPlist[i])
+            fX = PPlist[i][0]
+            fY = PPlist[i][1]
+
+            p = [fX(qBD, sBD), fY(qBD, sBD)]
             curvePoints.append(p)
+
+        # p[-1] = [qBD, sBD]
         T = np.arange(0., 1.0001, 1./100)
-        curve = bezeir_fit.gen(T, self.degC, curvePoints)
+
+        curve = bezeir_fit.gen(T, self.degC, np.array(curvePoints))
         return curve, T
-
-    def interpS(self, S, S_curve, T):
-        # Return all possible value in t corresponds to storage in a SDR curve.
-        sol = list()
-        for i in range(1, len(S_curve)):
-            if (S_curve[i-1] - S)*(S_curve[i] - S) < 0:
-                t0 = T[i-1]
-                t1 = T[i]
-                S1 = S_curve[i]
-                S0 = S_curve[i-1]
-                # linear interpolation
-                t = t0 + (S-S0)/(S1-S0)*(t1-t0)
-                sol.append(t)
-
-        return sol
-
-    def interpQtoT(self, Q, t0, Q_curve, T):
-        # Return the closiest value of q in bezeir-curve-fit.
-        sol = list()
-        for i in range(1, len(Q_curve)):
-            if (Q_curve[i-1]-Q)*(Q_curve[i]-Q) < 0:
-                t1 = T[i-1]
-                t2 = T[i]
-                Q1 = Q_curve[i-1]
-                Q2 = Q_curve[i]
-
-                t = t1 + (Q-Q1)/(Q2-Q1)*(t2-t1)
-                sol.append(t)
-        sol = np.array(sol)
-        print(sol)
-        sol = sol - t0
-        sol.sort()
-        print(sol)
-        idx = np.where(sol > 0)
-
-        print(idx)
-
-        return sol[idx[0]]+t0  # returns T(reference position on bezeir-curve)
-
-    def SCQuerry(self, curve, T, Sc, Q0=None, t0=None):
-        """
-        Sc: the storage to find the outflow
-        Q0: last outflow
-        T: reference knots
-        curve: standard generated bezeir curve of outflow - storage relation.
-        t0: the last t-value(indicator of position on a bezeir-curve)
-        """
-        q = curve[:, 0]
-        s = curve[:, 1]
-
-        if not t0:
-            t0 = 0.
-        if Q0:
-            t0 = interpQtoT(Q0, t0, q, T)
-
-        s_to_t = interpS(Sc, s, T)
-
-        if len(s_to_t) > 1:
-            r = np.array(s_to_t) - t0
-            r = r.sort()
-            idx = np.where(r > 0)
-            idx = idx[0]
-
-            t = r[idx] + t0
-            Q1 = np.interp(t, T, q)
-        elif len(s_to_t) == 1:
-            t = s_to_t[0]
-            Q1 = np.interp(t, T, q)
-        else:
-            return None, None
-
-        return Q1, t
-
-    def iteration(self, init_g, S, Q, curve, Tc):
-        g1 = init_g
-        g0 = 1.0
-        error = 100.0
-
-        # Initial guess
-        swc, Tswc = self.interpCurve(g0)
-        swc[:, 0] = swc[:, 0]*Q
-        swc[:, 1] = swc[:, 1]*S
-        error0 = min(np.sqrt((swc[-1, 0] - curve[:, 0])**2 +
-                             (swc[-1, 1] - curve[:, 1])**2))
-        while error > 1.0E-4:
-            swc, Tswc = self.interpCurve(g1)
-            swc[:, 0] = swc[:, 0]*Q
-            swc[:, 1] = swc[:, 1]*S
-
-            t = self.interpS(swc[-1, 1], curve[:, 1], Tc)
-            print(t)
-
-            """
-            Q1, t1 = self.SCQuerry(curve, Tc, swc[-1, 1])
-
-            if Q1:
-                error = abs(swc[-1, 0]-Q1)
-            else:
-                error = min(np.sqrt((swc[-1, 0] - curve[:, 0])**2,
-                                    (swc[-1, 1] - curve[:, 1])**2))"""
-            error = min(np.sqrt((swc[-1, 0] - curve[:, 0])**2 +
-                                (swc[-1, 1] - curve[:, 1])**2))
-
-            _g0 = g1
-            g1 = g1 - (error-error0)/(g1-g0)
-            print(g1, g0)
-            print(error, error0)
-            g0 = _g0
-            error0 = error
-
-        return g1
-
-    def endFit(self, S, Q, k, maxS, maxQ, risingGen):
-        # The terminal curve
-        curve, T = risingGen.getCurve(k, maxS, maxQ)
-
-        init_gamma = 1.5
-        gamma = self.iteration(init_gamma, S, Q, curve, T)
-
-        return gamma
-
-    def lineIntersect(self, vec1, vec2, p1, p2):
-        a = vec1[1]*p1[0] - vec1[0]*p1[1]
-        b = vec2[1]*p2[0] - vec2[0]*p2[1]
-
-        upVc1 = np.array([[a, -vec1[0]], [b, -vec2[0]]])
-        dnVc1 = np.array([[vec1[1], -vec1[0]], [vec2[1], -vec2[0]]])
-        x = np.linalg.det(upVc1)/np.linalg.det(dnVc1)
-        upVc2 = np.array([[vec1[1], a], [vec2[1], b]])
-        y = np.linalg.det(upVc2)/np.linalg.det(dnVc1)
-
-        return x, y
-
-    def endFit2(self, S, Q, curve):
-        header = self.header
-        Sheader = self.Sheader
-
-        header = np.array(header)*Q
-        Sheader = np.array(Sheader)*S
-
-        for j in range(1, len(curve)):
-            Q0 = np.interp(curve[j-1, 1], Sheader, header)
-            Q1 = np.interp(curve[j, 1], Sheader, header)
-            print(curve[j-1, 0] - Q0, curve[j, 0] - Q1)
-            print(Q0/Q, Q1/Q)
-            if (curve[j-1, 0] - Q0)*(curve[j, 0] - Q1) < 0:
-                vec1 = [(curve[j, 0]-curve[j-1, 0]),
-                        (curve[j, 1]-curve[j-1, 1])]
-                vec2 = [Q1-Q0, curve[j, 1]-curve[j-1, 1]]
-                p1 = [curve[j, 0], curve[j, 1]]
-                p2 = [Q1, curve[j, 1]]
-
-                Q, S = self.lineIntersect(vec1, vec2, p1, p2)
-
-                return Q, S
-
-        return None, None
-
-
-def interpS(S, S_curve, T):
-    # Return all possible value in t corresponds to storage in a SDR curve.
-    sol = list()
-    for i in range(1, len(T)):
-        if (S_curve[i-1] - S)*(S_curve[i] - S) < 0:
-            t0 = T[i-1]
-            t1 = T[i]
-            S1 = S_curve[i]
-            S0 = S_curve[i-1]
-            # linear interpolation
-            t = t0 + (S-S0)/(S1-S0)*(t1-t0)
-            sol.append(t)
-
-    return sol
-
-
-def interpQtoT(Q, t0, Q_curve, T):
-    # Return the closiest value of q in bezeir-curve-fit.
-    sol = list()
-    for i in range(1, len(T)):
-        if (Q_curve[i-1]-Q)*(Q_curve[i]-Q) < 0:
-            t1 = T[i-1]
-            t2 = T[i]
-            Q1 = Q_curve[i-1]
-            Q2 = Q_curve[i]
-
-            t = t1 + (Q-Q1)/(Q2-Q1)*(t2-t1)
-            sol.append(t)
-    sol = np.array(sol)
-    print(sol)
-    sol = sol - t0
-    sol.sort()
-    print(sol)
-    idx = np.where(sol > 0)
-
-    print(idx)
-
-    return sol[idx[0]]+t0  # returns T(reference position on bezeir-curve)
-
-
-def SCQuerry(curve, T, Sc, t0, Q0=None):
-    """
-    Sc: the storage to find the outflow
-    Q0: last outflow
-    T: reference knots
-    curve: standard generated bezeir curve of outflow - storage relation.
-    t0: the last t-value(indicator of position on a bezeir-curve)
-    """
-    q = curve[:, 0]
-    s = curve[:, 1]
-
-    if Q0:
-        t0 = interpQtoT(Q0, t0, q, T)
-    s_to_t = interpS(Sc, s, T)
-
-    if len(s_to_t) > 1:
-        r = np.array(s_to_t) - t0
-        r = r.sort()
-        idx = np.where(r > 0)
-        idx = idx[0]
-
-        t = r[idx] + t0
-        Q1 = np.interp(t, T, q)
-    elif len(s_to_t) == 1:
-        t = s_to_t[0]
-        Q1 = np.interp(t, T, q)
-
-    return Q1, t
 
 
 def randColor():
@@ -753,7 +694,7 @@ def compareSDRCurve():
         cb = ana_new.trans_ana(ie1, ie2[i], L, x_space, dt, n, slope)
         ca.run()
         cb.run()
-        SDR = clipSecondCurve(ca, cb)
+        SDR = bcdPoints(ca)
         SDR[:, 0] = (SDR[:, 0] - SDR[0, 0])/(SDR[-1, 0] - SDR[0, 0])
         SDR[:, 1] = SDR[:, 1]/SDR[0, 1]
         SDR[:, 2] = SDR[:, 2]/SDR[0, 2]
@@ -811,7 +752,7 @@ def compareSWRCurve():
         cb = ana_new.trans_ana(ie1, ie2[i], L, x_space, dt, n, slope)
         ca.run()
         cb.run()
-        SWR = clipSecondCurve(ca, cb)
+        SWR = bcdPoints(ca)
         SWR[:, 0] = (SWR[:, 0] - SWR[0, 0])/(SWR[-1, 0] - SWR[0, 0])
         SWR[:, 1] = SWR[:, 1]/SWR[0, 1]
         SWR[:, 2] = SWR[:, 2]/SWR[0, 2]
